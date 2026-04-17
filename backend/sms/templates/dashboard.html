@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrowdAlert — Authority Control Panel</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #181c27;
+    --surface2: #1e2233;
+    --border: #2b3050;
+    --text: #e8eaf2;
+    --muted: #8890a8;
+    --purple: #7c6af7;
+    --purple-dim: #3d3580;
+    --teal: #2dd4bf;
+    --teal-dim: #0d4a44;
+    --coral: #f87060;
+    --coral-dim: #4a1f19;
+    --green: #4ade80;
+    --green-dim: #0d3320;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.6; }
+
+  /* ── Layout ── */
+  .shell { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 24px 16px; display: flex; flex-direction: column; gap: 24px; }
+  .main { padding: 28px 32px; overflow-y: auto; }
+
+  /* ── Header ── */
+  .brand { display: flex; align-items: center; gap: 10px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+  .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--coral); box-shadow: 0 0 8px var(--coral); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .brand h1 { font-size: 16px; font-weight: 700; letter-spacing: .02em; }
+  .brand span { font-size: 11px; color: var(--muted); display: block; }
+
+  /* ── Status indicators ── */
+  .status-row { display: flex; flex-direction: column; gap: 8px; }
+  .status-item { display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 12px; }
+  .status-item .label { color: var(--muted); }
+  .badge { padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge.ok  { background: var(--green-dim); color: var(--green); }
+  .badge.err { background: var(--coral-dim); color: var(--coral); }
+  .badge.checking { background: #2a2e3a; color: var(--muted); }
+
+  /* ── Nav ── */
+  .nav-section h3 { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .nav-item { display: block; padding: 8px 12px; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; transition: background .15s, color .15s; font-size: 13px; }
+  .nav-item:hover, .nav-item.active { background: var(--surface2); color: var(--text); }
+  .nav-item.active { border-left: 2px solid var(--purple); }
+
+  /* ── Page header ── */
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+  .page-header h2 { font-size: 22px; font-weight: 700; }
+  .page-header p  { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+  /* ── Cards ── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; margin-bottom: 20px; }
+  .card h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .card h3 .icon { width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .icon-purple { background: var(--purple-dim); }
+  .icon-teal   { background: var(--teal-dim); }
+  .icon-coral  { background: var(--coral-dim); }
+
+  /* ── Form elements ── */
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; letter-spacing: .04em; text-transform: uppercase; }
+  input, select, textarea {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); padding: 10px 12px;
+    font-size: 14px; font-family: inherit; transition: border-color .15s;
+    outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--purple); }
+  textarea { resize: vertical; min-height: 72px; }
+  select option { background: var(--surface2); }
+
+  /* ── Mode toggle ── */
+  .mode-toggle { display: flex; gap: 8px; }
+  .mode-btn {
+    flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface2); color: var(--muted); cursor: pointer;
+    text-align: center; font-size: 13px; font-weight: 600; transition: all .15s;
+  }
+  .mode-btn.active-sms  { background: var(--teal-dim);   color: var(--teal);   border-color: var(--teal); }
+  .mode-btn.active-call { background: var(--coral-dim);  color: var(--coral);  border-color: var(--coral); }
+  .mode-btn.active-both { background: var(--purple-dim); color: var(--purple); border-color: var(--purple); }
+
+  /* ── Grid ── */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } .shell { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 10px; margin-top: 6px; }
+  .btn { padding: 10px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: opacity .15s; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--purple); }
+  .btn-primary { background: var(--purple); color: #fff; }
+  .btn-primary:hover:not(:disabled) { opacity: .85; }
+  .btn-danger  { background: var(--coral); color: #fff; }
+  .btn-danger:hover:not(:disabled) { opacity: .85; }
+
+  /* ── Preview box ── */
+  .preview-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; font-size: 13px; line-height: 1.7; color: var(--text); white-space: pre-wrap; min-height: 48px; }
+  .preview-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
+  .preview-label.sms  { color: var(--teal); }
+  .preview-label.voice { color: var(--coral); }
+  .char-count { font-size: 11px; color: var(--muted); text-align: right; margin-top: 4px; }
+  .char-count.over { color: var(--red); }
+
+  /* ── Results ── */
+  .result-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 8px; border: 1px solid; }
+  .result-bar.ok  { background: var(--green-dim); border-color: #1a5c30; color: var(--green); }
+  .result-bar.err { background: var(--coral-dim); border-color: #6b2218; color: var(--coral); }
+  .result-bar.info { background: var(--purple-dim); border-color: #4a3fa0; color: #b8b0ff; }
+
+  /* ── Tag input ── */
+  .tag-input-wrap { display: flex; flex-wrap: wrap; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; min-height: 44px; cursor: text; }
+  .tag-input-wrap:focus-within { border-color: var(--purple); }
+  .tag { background: var(--purple-dim); color: var(--purple); padding: 2px 10px; border-radius: 99px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .tag button { background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 14px; line-height: 1; opacity: .7; }
+  .tag-input { background: none; border: none; outline: none; color: var(--text); font-size: 13px; min-width: 140px; flex: 1; padding: 2px 4px; }
+
+  /* ── Spinner ── */
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Activity log ── */
+  #activity-log { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .log-entry { font-size: 12px; padding: 6px 12px; border-radius: var(--radius-sm); background: var(--surface2); border-left: 2px solid var(--border); color: var(--muted); }
+  .log-entry.log-ok { border-color: var(--green); }
+  .log-entry.log-err { border-color: var(--red); }
+  .log-entry.log-info { border-color: var(--purple); color: var(--text); }
+  .log-time { color: var(--muted); font-size: 11px; margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-dot" id="live-dot"></div>
+      <div>
+        <h1>CrowdAlert</h1>
+        <span>Authority Control Panel</span>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <div class="status-item">
+        <span class="label">SMS Gateway</span>
+        <span class="badge checking" id="badge-sms">checking…</span>
+      </div>
+      <div class="status-item">
+        <span class="label">Termux Bridge</span>
+        <span class="badge checking" id="badge-call">checking…</span>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <h3>Navigation</h3>
+      <span class="nav-item active">Send Alert</span>
+      <span class="nav-item" onclick="showSection('contacts')">Contact Groups</span>
+    </div>
+  </aside>
+
+  <!-- ── Main content ── -->
+  <main class="main">
+
+    <!-- Send Alert Section -->
+    <div id="section-alert">
+      <div class="page-header">
+        <div>
+          <h2>Send Emergency Alert</h2>
+          <p>Gemini AI will generate the message. Review before sending.</p>
+        </div>
+      </div>
+
+      <!-- Incident details card -->
+      <div class="card">
+        <h3><span class="icon icon-coral">⚡</span> Incident Details</h3>
+        <div class="grid2">
+          <div class="field">
+            <label>Incident Type</label>
+            <select id="incident-type">
+              <option value="Stampede / Crowd Surge">Stampede / Crowd Surge</option>
+              <option value="Fire Outbreak">Fire Outbreak</option>
+              <option value="Flood / Flash Flood">Flood / Flash Flood</option>
+              <option value="Medical Emergency">Medical Emergency</option>
+              <option value="Evacuation Required">Evacuation Required</option>
+              <option value="Structural Collapse">Structural Collapse</option>
+              <option value="Bomb Threat / Security">Bomb Threat / Security</option>
+              <option value="Custom">Custom (specify in instructions)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Location / Zone</label>
+            <input type="text" id="location" placeholder="e.g. Gate 4, North Stand, Sector B">
+          </div>
+        </div>
+        <div class="field">
+          <label>Additional Instructions for AI</label>
+          <textarea id="instructions" placeholder="Any extra context — exits to use, roads to avoid, resources available, etc."></textarea>
+        </div>
+      </div>
+
+      <!-- Recipients card -->
+      <div class="card">
+        <h3><span class="icon icon-teal">👥</span> Recipients</h3>
+        <div class="grid2">
+          <div class="field">
+            <label>Contact Group</label>
+            <select id="group-select">
+              <option value="">— No group —</option>
+              {% for g in groups %}
+              <option value="{{ g }}">{{ g }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Alert Mode</label>
+            <div class="mode-toggle">
+              <div class="mode-btn active-sms" onclick="setMode('sms', this)">SMS</div>
+              <div class="mode-btn" onclick="setMode('call', this)">Call</div>
+              <div class="mode-btn" onclick="setMode('both', this)">Both</div>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Custom Numbers (type and press Enter)</label>
+          <div class="tag-input-wrap" id="tag-wrap" onclick="document.getElementById('num-input').focus()">
+            <input class="tag-input" id="num-input" placeholder="+91XXXXXXXXXX" onkeydown="handleTagInput(event)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview + Send card -->
+      <div class="card">
+        <h3><span class="icon icon-purple">✦</span> Gemini Preview & Send</h3>
+        <div class="btn-row" style="margin-bottom:20px">
+          <button class="btn btn-secondary" onclick="previewAlert()">
+            <span id="preview-label">Generate preview</span>
+          </button>
+          <button class="btn btn-danger" id="send-btn" onclick="sendAlert()" disabled>
+            <span id="send-label">Send Alert</span>
+          </button>
+        </div>
+
+        <div id="preview-area" style="display:none">
+          <div id="sms-preview-wrap" style="margin-bottom:16px">
+            <div class="preview-label sms">SMS MESSAGE</div>
+            <div class="preview-box" id="sms-preview"></div>
+            <div class="char-count" id="sms-chars"></div>
+          </div>
+          <div id="voice-preview-wrap">
+            <div class="preview-label voice">VOICE CALL SCRIPT (spoken by Gemini TTS)</div>
+            <div class="preview-box" id="voice-preview"></div>
+          </div>
+        </div>
+
+        <div id="result-area" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- Contact Groups Section -->
+    <div id="section-contacts" style="display:none">
+      <div class="page-header">
+        <div>
+          <h2>Contact Groups</h2>
+          <p>Manage phone number lists for each zone or team.</p>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Add / Edit Group</h3>
+        <div class="grid2">
+          <div class="field">
+            <label>Group Name</label>
+            <input type="text" id="new-group-name" placeholder="e.g. zone_a, field_responders">
+          </div>
+        </div>
+        <div class="field">
+          <label>Phone Numbers (one per line, include country code)</label>
+          <textarea id="new-group-numbers" placeholder="+91XXXXXXXXXX&#10;+91XXXXXXXXXX" style="min-height:100px"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="saveGroup()">Save Group</button>
+      </div>
+      <div id="groups-list" class="card">
+        <h3>Existing Groups</h3>
+        <div id="groups-content"></div>
+      </div>
+    </div>
+
+    <!-- Activity Log (always visible at bottom) -->
+    <div class="card">
+      <h3>Activity Log</h3>
+      <div id="activity-log">
+        <div class="log-entry log-info"><span class="log-time">now</span>Control panel loaded. Check gateway status above.</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────
+let activeMode = 'sms';
+let customNumbers = [];
+let previewData = null;
+
+// ── Helpers ────────────────────────────────────────────────────────────
+function ts() {
+  return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+function log(msg, type='info') {
+  const el = document.getElementById('activity-log');
+  const div = document.createElement('div');
+  div.className = `log-entry log-${type}`;
+  div.innerHTML = `<span class="log-time">${ts()}</span>${msg}`;
+  el.prepend(div);
+  if (el.children.length > 50) el.lastElementChild.remove();
+}
+
+function showResult(html) {
+  document.getElementById('result-area').innerHTML = html;
+}
+
+// ── Nav ────────────────────────────────────────────────────────────────
+function showSection(name) {
+  document.getElementById('section-alert').style.display = name === 'alert' ? '' : 'none';
+  document.getElementById('section-contacts').style.display = name === 'contacts' ? '' : 'none';
+  document.querySelectorAll('.nav-item').forEach((el, i) => {
+    el.classList.toggle('active', (i === 0 && name === 'alert') || (i === 1 && name === 'contacts'));
+  });
+  if (name === 'contacts') loadGroups();
+}
+document.querySelectorAll('.nav-item')[0].addEventListener('click', () => showSection('alert'));
+
+// ── Status polling ─────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const smsBadge = document.getElementById('badge-sms');
+    const callBadge = document.getElementById('badge-call');
+    smsBadge.textContent = d.sms_gateway ? 'online' : 'offline';
+    smsBadge.className = `badge ${d.sms_gateway ? 'ok' : 'err'}`;
+    callBadge.textContent = d.termux_bridge ? 'online' : 'offline';
+    callBadge.className = `badge ${d.termux_bridge ? 'ok' : 'err'}`;
+  } catch {
+    ['badge-sms','badge-call'].forEach(id => {
+      document.getElementById(id).textContent = 'error';
+      document.getElementById(id).className = 'badge err';
+    });
+  }
+}
+checkStatus();
+setInterval(checkStatus, 15000);
+
+// ── Mode toggle ────────────────────────────────────────────────────────
+function setMode(mode, el) {
+  activeMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.className = 'mode-btn');
+  el.className = `mode-btn active-${mode}`;
+  // Refresh preview visibility
+  if (previewData) applyPreview(previewData);
+}
+
+// ── Tag input (custom numbers) ─────────────────────────────────────────
+function handleTagInput(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    const val = e.target.value.trim().replace(/,/g,'');
+    if (val && !customNumbers.includes(val)) {
+      customNumbers.push(val);
+      renderTags();
+    }
+    e.target.value = '';
+  } else if (e.key === 'Backspace' && !e.target.value && customNumbers.length) {
+    customNumbers.pop();
+    renderTags();
+  }
+}
+
+function renderTags() {
+  const wrap = document.getElementById('tag-wrap');
+  const input = document.getElementById('num-input');
+  wrap.querySelectorAll('.tag').forEach(t => t.remove());
+  customNumbers.forEach((num, i) => {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.innerHTML = `${num}<button onclick="removeTag(${i})">×</button>`;
+    wrap.insertBefore(tag, input);
+  });
+}
+
+function removeTag(i) { customNumbers.splice(i, 1); renderTags(); }
+
+// ── Preview ────────────────────────────────────────────────────────────
+async function previewAlert() {
+  const incident = document.getElementById('incident-type').value;
+  const location = document.getElementById('location').value.trim();
+  const instructions = document.getElementById('instructions').value.trim();
+  if (!location) { log('Enter a location first', 'err'); return; }
+
+  const btn = document.getElementById('preview-label');
+  btn.innerHTML = '<span class="spinner"></span> Generating…';
+  log('Gemini generating preview…');
+
+  try {
+    const r = await fetch('/api/preview', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({incidentType: incident, location, instructions})
+    });
+    const d = await r.json();
+    previewData = d;
+    applyPreview(d);
+    document.getElementById('send-btn').disabled = false;
+    log('Preview ready — review before sending.', 'ok');
+  } catch(e) {
+    log('Preview failed: ' + e, 'err');
+  } finally {
+    btn.textContent = 'Regenerate';
+  }
+}
+
+function applyPreview(d) {
+  const area = document.getElementById('preview-area');
+  area.style.display = '';
+
+  const smsWrap = document.getElementById('sms-preview-wrap');
+  const voiceWrap = document.getElementById('voice-preview-wrap');
+  smsWrap.style.display   = (activeMode !== 'call') ? '' : 'none';
+  voiceWrap.style.display = (activeMode !== 'sms')  ? '' : 'none';
+
+  document.getElementById('sms-preview').textContent = d.sms || '';
+  document.getElementById('voice-preview').textContent = d.voice || '';
+
+  const smsLen = (d.sms || '').length;
+  const charEl = document.getElementById('sms-chars');
+  charEl.textContent = `${smsLen}/160 characters`;
+  charEl.className = 'char-count' + (smsLen > 160 ? ' over' : '');
+}
+
+// ── Send ───────────────────────────────────────────────────────────────
+async function sendAlert() {
+  const incident    = document.getElementById('incident-type').value;
+  const location    = document.getElementById('location').value.trim();
+  const instructions = document.getElementById('instructions').value.trim();
+  const group       = document.getElementById('group-select').value;
+  if (!location) { log('Enter a location first', 'err'); return; }
+  if (!group && customNumbers.length === 0) { log('Add recipients or select a group', 'err'); return; }
+
+  const sendBtn = document.getElementById('send-btn');
+  const sendLabel = document.getElementById('send-label');
+  sendBtn.disabled = true;
+  sendLabel.innerHTML = '<span class="spinner"></span> Sending…';
+  log(`Dispatching ${activeMode.toUpperCase()} alert to group "${group}" + ${customNumbers.length} custom numbers…`, 'info');
+
+  try {
+    const r = await fetch('/api/send-alert', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        incidentType: incident,
+        location,
+        instructions,
+        mode: activeMode,
+        group,
+        customNumbers
+      })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Unknown error');
+
+    let html = '';
+    if (d.sms) {
+      const ok = d.sms.sent, fail = d.sms.failed;
+      html += `<div class="result-bar ${fail ? 'err' : 'ok'}">SMS: ${ok} sent, ${fail} failed — "${d.sms.message}"</div>`;
+      log(`SMS dispatched — ${ok}/${ok+fail} delivered`, fail ? 'err' : 'ok');
+    }
+    if (d.calls) {
+      html += `<div class="result-bar info">📞 Calls initiated — Gemini voice playing to ${d.total} recipients</div>`;
+      log('Voice calls in progress (sequential, ~35s between each)', 'info');
+    }
+    showResult(html);
+  } catch(e) {
+    log('Send failed: ' + e, 'err');
+    showResult(`<div class="result-bar err">Send failed: ${e}</div>`);
+  } finally {
+    sendBtn.disabled = false;
+    sendLabel.textContent = 'Send Alert';
+  }
+}
+
+// ── Contact groups ─────────────────────────────────────────────────────
+async function loadGroups() {
+  const r = await fetch('/api/groups');
+  const groups = await r.json();
+  const el = document.getElementById('groups-content');
+  if (!Object.keys(groups).length) {
+    el.innerHTML = '<p style="color:var(--muted);font-size:13px">No groups yet.</p>';
+    return;
+  }
+  el.innerHTML = Object.entries(groups).map(([name, nums]) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <strong>${name}</strong>
+        <span style="color:var(--muted);font-size:12px;margin-left:10px">${nums.length} numbers</span>
+      </div>
+      <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px" onclick="deleteGroup('${name}')">Delete</button>
+    </div>
+  `).join('');
+}
+
+async function saveGroup() {
+  const name = document.getElementById('new-group-name').value.trim();
+  const raw  = document.getElementById('new-group-numbers').value;
+  if (!name) { log('Enter a group name', 'err'); return; }
+  const numbers = raw.split('\n').map(n => n.trim()).filter(Boolean);
+  await fetch(`/api/groups/${encodeURIComponent(name)}`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({numbers})
+  });
+  log(`Group "${name}" saved with ${numbers.length} numbers`, 'ok');
+  loadGroups();
+}
+
+async function deleteGroup(name) {
+  if (!confirm(`Delete group "${name}"?`)) return;
+  await fetch(`/api/groups/${encodeURIComponent(name)}`, {method:'DELETE'});
+  log(`Group "${name}" deleted`, 'ok');
+  loadGroups();
+}
+</script>
+</body>
+</html>

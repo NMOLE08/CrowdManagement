@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import LiveCommandMap from './components/LiveCommandMap';
 import ChatLauncherButton from './components/ChatLauncherButton';
+import ChatWindow from './components/ChatWindow';
+import FallbackPage from './components/FallbackPage';
+import { getDemoSuggestion, triggerHighAlert, triggerWarningAlert } from './api/mlApi';
 import { useMlSceneData } from './hooks/useMlSceneData';
 import { useCameraAnalytics } from './hooks/useCameraAnalytics';
 import { useEmotionDetection } from './hooks/useEmotionDetection';
@@ -9,7 +12,7 @@ import crowdLogo from './assets/CrowdLogo.png';
 
 export default function App() {
   const { t, i18n } = useTranslation();
-  const { scene, loading, error } = useMlSceneData(7000);
+  const { scene, loading, error, systemStatus } = useMlSceneData(7000);
   const [selectedCamera, setSelectedCamera] = useState(null);
   const [isAmberDemoOpen, setIsAmberDemoOpen] = useState(false);
   const [amberActionNote, setAmberActionNote] = useState('');
@@ -17,6 +20,13 @@ export default function App() {
   const [redActionNote, setRedActionNote] = useState('');
   const [redCountdown, setRedCountdown] = useState(10);
   const [highlightedRoute, setHighlightedRoute] = useState(null);
+  const [amberSuggestion, setAmberSuggestion] = useState('');
+  const [redSuggestion, setRedSuggestion] = useState('');
+  const [isAmberActionLoading, setIsAmberActionLoading] = useState(false);
+  const [isRedActionLoading, setIsRedActionLoading] = useState(false);
+  const amberSendInFlightRef = useRef(false);
+  const redSendInFlightRef = useRef(false);
+  const redAutoTriggeredRef = useRef(false);
   const modalVideoRef = useRef(null);
   const { cameras, getCameraDetails } = useCameraAnalytics(scene);
   const emotionDetection = useEmotionDetection(selectedCamera);
@@ -63,6 +73,35 @@ export default function App() {
   };
 
   const numberLocale = i18n.language === 'mr' ? 'mr-IN' : 'en-IN';
+
+  const formatStatusTime = (isoTime) => {
+    if (!isoTime) {
+      return t('common.na');
+    }
+    const date = new Date(isoTime);
+    if (Number.isNaN(date.getTime())) {
+      return t('common.na');
+    }
+    return date.toLocaleString(numberLocale);
+  };
+
+  const headerStatusText = !systemStatus?.networkOnline
+    ? t('fallback.networkOffline')
+    : loading
+      ? t('status.syncing')
+      : systemStatus?.isFallbackActive
+        ? t('status.fallbackMode')
+        : t('status.allOkay');
+
+  const fallbackModeLabel = systemStatus?.isFallbackActive
+    ? t('fallback.modeFallback')
+    : t('fallback.modeLive');
+
+  const fallbackSourceLabel = systemStatus?.dataSource === 'live'
+    ? t('fallback.sourceLive')
+    : systemStatus?.dataSource === 'cache'
+      ? t('fallback.sourceCache')
+      : t('fallback.sourceDefault');
 
   const formatLocalizedNumber = (value) => {
     const numeric = Number(value);
@@ -342,15 +381,98 @@ export default function App() {
   }, [isRedDemoOpen, redCountdown]);
 
   useEffect(() => {
-    if (isRedDemoOpen && redCountdown === 0) {
-      setHighlightedRoute(shortestExitRoute);
-      setRedActionNote(t('demoCritical.autoSmsSent'));
-      setIsRedDemoOpen(false);
+    if (!isRedDemoOpen || redCountdown !== 0 || redAutoTriggeredRef.current) {
+      return;
     }
-  }, [isRedDemoOpen, redCountdown, shortestExitRoute, t]);
+
+    redAutoTriggeredRef.current = true;
+
+    const triggerAutoHighAlert = async () => {
+      setIsRedActionLoading(true);
+      try {
+        const response = await triggerHighAlert(i18n.resolvedLanguage || i18n.language);
+        setHighlightedRoute(shortestExitRoute);
+        if (response?.aiSuggestion) {
+          setRedSuggestion(response.aiSuggestion);
+        }
+        setRedActionNote(t('demoCritical.autoSmsSent'));
+        setIsRedDemoOpen(false);
+      } catch (err) {
+        setRedActionNote(t('demoCritical.actionError'));
+      } finally {
+        setIsRedActionLoading(false);
+      }
+    };
+
+    triggerAutoHighAlert();
+  }, [i18n.language, i18n.resolvedLanguage, isRedDemoOpen, redCountdown, shortestExitRoute, t]);
+
+  useEffect(() => {
+    if (!isRedDemoOpen) {
+      redAutoTriggeredRef.current = false;
+      redSendInFlightRef.current = false;
+    }
+  }, [isRedDemoOpen]);
+
+  useEffect(() => {
+    if (!isAmberDemoOpen) {
+      amberSendInFlightRef.current = false;
+    }
+  }, [isAmberDemoOpen]);
+
+  useEffect(() => {
+    if (!isAmberDemoOpen) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loadSuggestion = async () => {
+      try {
+        const response = await getDemoSuggestion('warning', i18n.resolvedLanguage || i18n.language);
+        if (!cancelled) {
+          setAmberSuggestion(response?.suggestion || t('demo.rerouteGate2'));
+        }
+      } catch {
+        if (!cancelled) {
+          setAmberSuggestion(t('demo.rerouteGate2'));
+        }
+      }
+    };
+
+    loadSuggestion();
+    return () => {
+      cancelled = true;
+    };
+  }, [i18n.language, i18n.resolvedLanguage, isAmberDemoOpen, t]);
+
+  useEffect(() => {
+    if (!isRedDemoOpen) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loadSuggestion = async () => {
+      try {
+        const response = await getDemoSuggestion('high', i18n.resolvedLanguage || i18n.language);
+        if (!cancelled) {
+          setRedSuggestion(response?.suggestion || t('demoCritical.rerouteNearestExit'));
+        }
+      } catch {
+        if (!cancelled) {
+          setRedSuggestion(t('demoCritical.rerouteNearestExit'));
+        }
+      }
+    };
+
+    loadSuggestion();
+    return () => {
+      cancelled = true;
+    };
+  }, [i18n.language, i18n.resolvedLanguage, isRedDemoOpen, t]);
 
   const openAmberDemo = () => {
     setAmberActionNote('');
+    setAmberSuggestion(t('demo.suggestionLoading'));
     setIsAmberDemoOpen(true);
   };
 
@@ -358,8 +480,25 @@ export default function App() {
     setIsAmberDemoOpen(false);
   };
 
-  const onAmberSendSms = () => {
-    setAmberActionNote(t('demo.smsSent'));
+  const onAmberSendSms = async () => {
+    if (amberSendInFlightRef.current) {
+      return;
+    }
+
+    amberSendInFlightRef.current = true;
+    setIsAmberActionLoading(true);
+    try {
+      const response = await triggerWarningAlert(i18n.resolvedLanguage || i18n.language);
+      if (response?.aiSuggestion) {
+        setAmberSuggestion(response.aiSuggestion);
+      }
+      setAmberActionNote(t('demo.smsSent'));
+    } catch (err) {
+      setAmberActionNote(t('demo.actionError'));
+    } finally {
+      amberSendInFlightRef.current = false;
+      setIsAmberActionLoading(false);
+    }
   };
 
   const onAmberIgnore = () => {
@@ -368,9 +507,12 @@ export default function App() {
   };
 
   const openRedDemo = () => {
+    redAutoTriggeredRef.current = false;
+    redSendInFlightRef.current = false;
     setHighlightedRoute(null);
     setRedActionNote('');
     setRedCountdown(10);
+    setRedSuggestion(t('demoCritical.suggestionLoading'));
     setIsRedDemoOpen(true);
   };
 
@@ -378,10 +520,28 @@ export default function App() {
     setIsRedDemoOpen(false);
   };
 
-  const onRedSendSms = () => {
-    setHighlightedRoute(shortestExitRoute);
-    setRedActionNote(t('demoCritical.smsSent'));
-    closeRedDemo();
+  const onRedSendSms = async () => {
+    if (redSendInFlightRef.current) {
+      return;
+    }
+
+    redSendInFlightRef.current = true;
+    redAutoTriggeredRef.current = true;
+    setIsRedActionLoading(true);
+    try {
+      const response = await triggerHighAlert(i18n.resolvedLanguage || i18n.language);
+      setHighlightedRoute(shortestExitRoute);
+      if (response?.aiSuggestion) {
+        setRedSuggestion(response.aiSuggestion);
+      }
+      setRedActionNote(t('demoCritical.smsSent'));
+      closeRedDemo();
+    } catch (err) {
+      setRedActionNote(t('demoCritical.actionError'));
+    } finally {
+      redSendInFlightRef.current = false;
+      setIsRedActionLoading(false);
+    }
   };
 
   const onRedIgnore = () => {
@@ -391,7 +551,8 @@ export default function App() {
 
   return (
     <div className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}`}>
-      <header className="dashboard-header">
+      <header className={`dashboard-header${systemStatus?.isFallbackActive ? ' dashboard-header--emergency' : ''}`}>
+
         <div className="logo-block">
           <span className="logo-badge">
             <img
@@ -417,7 +578,7 @@ export default function App() {
         <div className="header-right">
           <div className="status-block" aria-live="polite">
             <span className="status-icon" aria-hidden="true">◉</span>
-            <span>{error ? t('status.backendOffline') : loading ? t('status.syncing') : t('status.allOkay')}</span>
+            <span>{headerStatusText}</span>
           </div>
           <button
             type="button"
@@ -431,101 +592,107 @@ export default function App() {
         </div>
       </header>
 
-      <main className="dashboard-main">
-        <section className="upper-grid">
-          <aside className="left-panel">
-            <div className="panel-card">
-              <div className="main-place-block" aria-label={t('mainPlace.label')}>
-                <p className="main-place-label">{t('mainPlace.label')}</p>
-                <p className="main-place-name">{mainPlace}</p>
+      {systemStatus?.isFallbackActive ? (
+        <FallbackPage scene={scene} systemStatus={systemStatus} />
+      ) : (
+        <main className="dashboard-main">
+          <section className="upper-grid">
+            <aside className="left-panel">
+              <div className="panel-card">
+                <div className="main-place-block" aria-label={t('mainPlace.label')}>
+                  <p className="main-place-label">{t('mainPlace.label')}</p>
+                  <p className="main-place-name">{mainPlace}</p>
+                </div>
+                <h2>{t('sections.keyMetrics')}</h2>
+                <div className="metric-list">
+                  {metrics.map((metric) => (
+                    <article className="metric-item" key={metric.label}>
+                      <p className="metric-label">{metric.label}</p>
+                      <p className="metric-value">{metric.value}</p>
+                    </article>
+                  ))}
+                </div>
               </div>
-              <h2>{t('sections.keyMetrics')}</h2>
-              <div className="metric-list">
-                {metrics.map((metric) => (
-                  <article className="metric-item" key={metric.label}>
-                    <p className="metric-label">{metric.label}</p>
-                    <p className="metric-value">{metric.value}</p>
-                  </article>
-                ))}
+
+              <div className="panel-card">
+                <h2>{t('sections.alertLog')}</h2>
+                <ul className="alert-list">
+                  {alerts.map((alert) => (
+                    <li key={alert.id} className={`alert-item alert-item--${alert.severity}`}>
+                      {alert.message}
+                    </li>
+                  ))}
+                </ul>
               </div>
+            </aside>
+
+            <section className="map-panel" aria-label={t('sections.mapPreview')}>
+              <div className="map-inner map-inner--live">
+                <LiveCommandMap mapData={scene?.map} highlightedRoute={highlightedRoute} />
+              </div>
+            </section>
+          </section>
+
+          <section className="camera-section" aria-label={t('sections.cameraFeed')}>
+            <div className="camera-section__header">
+              <h2>{t('sections.cameraFeed')}</h2>
             </div>
 
-            <div className="panel-card">
-              <h2>{t('sections.alertLog')}</h2>
-              <ul className="alert-list">
-                {alerts.map((alert) => (
-                  <li key={alert.id} className={`alert-item alert-item--${alert.severity}`}>
-                    {alert.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </aside>
-
-          <section className="map-panel" aria-label={t('sections.mapPreview')}>
-            <div className="map-inner map-inner--live">
-              <LiveCommandMap mapData={scene?.map} highlightedRoute={highlightedRoute} />
+            <div className="camera-board" aria-label={t('sections.cameraFeeds')}>
+              {cameras.map((cam) => (
+                <article
+                  className={`camera-card${cam.live ? ' camera-card--live' : ''}`}
+                  key={cam.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedCamera(cam)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedCamera(cam);
+                    }
+                  }}
+                >
+                  <div className="camera-card__frame">
+                    {cam.streamUrl ? (
+                      <video
+                        className="camera-card__video"
+                        src={cam.streamUrl}
+                        autoPlay
+                        muted
+                        loop
+                        preload="metadata"
+                        playsInline
+                        controls={false}
+                      />
+                    ) : (
+                      <div className="camera-card__placeholder" aria-hidden="true" />
+                    )}
+                  </div>
+                  <div className="camera-label-row">
+                    <span>{localizeCameraTitle(cam.title)}</span>
+                    {cam.live ? <span className="live-pill">{t('common.live')}</span> : null}
+                  </div>
+                </article>
+              ))}
             </div>
           </section>
-        </section>
 
-        <section className="camera-section" aria-label={t('sections.cameraFeed')}>
-          <div className="camera-section__header">
-            <h2>{t('sections.cameraFeed')}</h2>
-          </div>
-
-          <div className="camera-board" aria-label={t('sections.cameraFeeds')}>
-            {cameras.map((cam) => (
-              <article
-                className={`camera-card${cam.live ? ' camera-card--live' : ''}`}
-                key={cam.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedCamera(cam)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setSelectedCamera(cam);
-                  }
-                }}
-              >
-                <div className="camera-card__frame">
-                  {cam.streamUrl ? (
-                    <video
-                      className="camera-card__video"
-                      src={cam.streamUrl}
-                      autoPlay
-                      muted
-                      loop
-                      preload="metadata"
-                      playsInline
-                      controls={false}
-                    />
-                  ) : (
-                    <div className="camera-card__placeholder" aria-hidden="true" />
-                  )}
-                </div>
-                <div className="camera-label-row">
-                  <span>{localizeCameraTitle(cam.title)}</span>
-                  {cam.live ? <span className="live-pill">{t('common.live')}</span> : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="demo-actions" aria-label="Demo actions">
-          <button
-            type="button"
-            className="demo-btn demo-btn--orange"
-            onClick={openAmberDemo}
-          >
-            DEMO
-          </button>
-          <button type="button" className="demo-btn demo-btn--red" onClick={openRedDemo}>DEMO</button>
-        </section>
+          <section className="demo-actions" aria-label="Demo actions">
+            <button
+              type="button"
+              className="demo-btn demo-btn--orange"
+              onClick={openAmberDemo}
+            >
+              DEMO
+            </button>
+            <button type="button" className="demo-btn demo-btn--red" onClick={openRedDemo}>DEMO</button>
+          </section>
+        </main>
+      )}
 
         <ChatLauncherButton />
+        <ChatWindow isFallbackActive={systemStatus?.isFallbackActive} />
 
         {selectedCamera ? (
           <div
@@ -657,14 +824,14 @@ export default function App() {
 
                   <div className="amber-info-box amber-info-box--ai">
                     <p className="amber-info-title">{t('demo.aiSuggestion')}</p>
-                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{t('demo.rerouteGate2')}</p>
+                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{amberSuggestion || t('demo.rerouteGate2')}</p>
                   </div>
                 </aside>
               </div>
 
               <div className="amber-actions">
-                <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onAmberSendSms}>
-                  {t('demo.sendSms')}
+                <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onAmberSendSms} disabled={isAmberActionLoading}>
+                  {isAmberActionLoading ? t('demo.sending') : t('demo.sendSms')}
                 </button>
                 <button type="button" className="amber-action-btn amber-action-btn--ignore" onClick={onAmberIgnore}>
                   {t('demo.ignore')}
@@ -731,7 +898,7 @@ export default function App() {
 
                   <div className="amber-info-box amber-info-box--ai amber-info-box--critical-ai">
                     <p className="amber-info-title">{t('demoCritical.aiSuggestion')}</p>
-                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{t('demoCritical.rerouteNearestExit')}</p>
+                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{redSuggestion || t('demoCritical.rerouteNearestExit')}</p>
                   </div>
                 </aside>
               </div>
@@ -741,8 +908,8 @@ export default function App() {
               </p>
 
               <div className="amber-actions">
-                <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onRedSendSms}>
-                  {t('demoCritical.sendSms')}
+                <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onRedSendSms} disabled={isRedActionLoading}>
+                  {isRedActionLoading ? t('demoCritical.sending') : t('demoCritical.sendSms')}
                 </button>
                 <button type="button" className="amber-action-btn amber-action-btn--ignore" onClick={onRedIgnore}>
                   {t('demoCritical.ignore')}
@@ -753,7 +920,6 @@ export default function App() {
             </section>
           </div>
         ) : null}
-      </main>
     </div>
   );
 }

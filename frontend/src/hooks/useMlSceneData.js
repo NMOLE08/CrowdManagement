@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getScene } from '../api/mlApi';
+import { getHealth, getScene } from '../api/mlApi';
+
+const SCENE_CACHE_KEY = 'crowdshield:last-scene';
 
 const DEFAULT_SCENE = {
   city: 'Pune',
@@ -49,20 +51,98 @@ export function useMlSceneData(pollMs = 8000) {
   const [scene, setScene] = useState(DEFAULT_SCENE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [networkOnline, setNetworkOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  const [serverReachable, setServerReachable] = useState(false);
+  const [dataSource, setDataSource] = useState('default');
+  const [cachedSceneAvailable, setCachedSceneAvailable] = useState(false);
+  const [lastSuccessfulAt, setLastSuccessfulAt] = useState('');
+  const [lastAttemptAt, setLastAttemptAt] = useState('');
 
   useEffect(() => {
     let mounted = true;
 
+    const handleOnline = () => {
+      console.log('Browser reported ONLINE');
+      setNetworkOnline(true);
+    };
+    const handleOffline = () => {
+      console.log('Browser reported OFFLINE');
+      setNetworkOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Also re-check on window focus or visibility change to catch missed events
+    const handleRecheck = () => {
+      if (typeof navigator !== 'undefined') {
+        setNetworkOnline(navigator.onLine);
+      }
+    };
+    window.addEventListener('focus', handleRecheck);
+    document.addEventListener('visibilitychange', handleRecheck);
+
+    try {
+      const rawCached = window.localStorage.getItem(SCENE_CACHE_KEY);
+      if (rawCached) {
+        const parsed = JSON.parse(rawCached);
+        if (parsed && typeof parsed === 'object' && mounted) {
+          setScene((prev) => ({ ...prev, ...parsed }));
+          setDataSource('cache');
+          setCachedSceneAvailable(true);
+          if (parsed.updated_at) {
+            setLastSuccessfulAt(parsed.updated_at);
+          }
+        }
+      }
+    } catch {
+      // Ignore cache parsing issues and continue with defaults.
+    }
+
     async function load() {
-      try {
-        const data = await getScene();
+      const nowIso = new Date().toISOString();
+      if (mounted) {
+        setLastAttemptAt(nowIso);
+      }
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
         if (mounted) {
-          setScene((prev) => ({ ...prev, ...data }));
+          setNetworkOnline(false);
+          setServerReachable(false);
+          setError('Network offline');
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const [data] = await Promise.all([
+          getScene(),
+          getHealth().catch(() => null),
+        ]);
+
+        if (mounted) {
+          setScene((prev) => {
+            const merged = { ...prev, ...data };
+            try {
+              window.localStorage.setItem(SCENE_CACHE_KEY, JSON.stringify(merged));
+              setCachedSceneAvailable(true);
+            } catch {
+              // Ignore cache write failures.
+            }
+            return merged;
+          });
           setError('');
+          setDataSource('live');
+          setServerReachable(true);
+          const updatedAt = data?.updated_at || nowIso;
+          setLastSuccessfulAt(updatedAt);
         }
       } catch (err) {
         if (mounted) {
           setError(err instanceof Error ? err.message : 'Failed to fetch scene');
+          setServerReachable(false);
+          setDataSource((prev) => (cachedSceneAvailable ? (prev === 'live' ? 'cache' : prev) : 'default'));
         }
       } finally {
         if (mounted) {
@@ -77,11 +157,39 @@ export function useMlSceneData(pollMs = 8000) {
     return () => {
       mounted = false;
       window.clearInterval(id);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-  }, [pollMs]);
+  }, [pollMs, cachedSceneAvailable]);
+
+  const isFallbackActive = !networkOnline;
 
   return useMemo(
-    () => ({ scene, loading, error }),
-    [scene, loading, error]
+    () => ({
+      scene,
+      loading,
+      error,
+      systemStatus: {
+        isFallbackActive,
+        networkOnline,
+        serverReachable,
+        dataSource,
+        cachedSceneAvailable,
+        lastSuccessfulAt,
+        lastAttemptAt,
+      },
+    }),
+    [
+      cachedSceneAvailable,
+      dataSource,
+      error,
+      isFallbackActive,
+      lastAttemptAt,
+      lastSuccessfulAt,
+      loading,
+      networkOnline,
+      scene,
+      serverReachable,
+    ]
   );
 }

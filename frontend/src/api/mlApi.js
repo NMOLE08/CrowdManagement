@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 
 async function apiGet(path) {
   const res = await fetch(`${API_BASE}${path}`);
@@ -34,4 +34,20 @@ export function pushModelOutput(payload) {
 
 export function pushCameraModelOutput(cameras) {
   return apiPost('/api/v1/model-output', { cameras });
+}
+
+export function chatWithAssistant(message, language) {
+  return apiPost('/api/v1/chat', { message, language });
+}
+
+export function getDemoSuggestion(alertLevel, language) {
+  return apiPost('/api/v1/demo/suggestion', { alertLevel, language });
+}
+
+export function triggerWarningAlert(language) {
+  return apiPost('/api/v1/demo/warning-alert', { language });
+}
+
+export function triggerHighAlert(language) {
+  return apiPost('/api/v1/demo/high-alert', { language });
 }
