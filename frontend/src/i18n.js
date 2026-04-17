@@ -105,10 +105,15 @@ const resources = {
           route4: 'Route 4 (South-Western Exit)',
         },
         exitNames: {
+          sevasadanChowk: 'Sevasadan Chowk',
           laxmiRoad: 'Laxmi Road',
+          tilakRoad: 'Tilak Road',
           mamledarKacheri: 'Mamledar Kacheri',
+          jayantraoTilakBridge: 'Jayantrao Tilak Bridge',
           subhanshahDargah: 'Subhanshah Dargah (Raviwar Peth)',
+          govindHalwaiChowk: 'Govind Halwai Chowk',
           perugate: 'Perugate',
+          maharanaPratapUdyan: 'Maharana Pratap Udyan',
         },
       },
       chat: {
@@ -249,10 +254,15 @@ const resources = {
           route4: 'मार्ग ४ (दक्षिण-पश्चिम निर्गमन)',
         },
         exitNames: {
+          sevasadanChowk: 'सेवासदन चौक',
           laxmiRoad: 'लक्ष्मी रोड',
+          tilakRoad: 'टिळक रोड',
           mamledarKacheri: 'मामलेदार कचेरी',
+          jayantraoTilakBridge: 'जयंंतराव टिळक पूल',
           subhanshahDargah: 'सुभानशाह दर्गाह (रविवार पेठ)',
+          govindHalwaiChowk: 'गोविंद हलवाई चौक',
           perugate: 'पेरूगेट',
+          maharanaPratapUdyan: 'महाराणा प्रताप उद्यान',
         },
       },
       chat: {

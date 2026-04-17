@@ -12,12 +12,18 @@ export default function App() {
   const { scene, loading, error } = useMlSceneData(7000);
   const [selectedCamera, setSelectedCamera] = useState(null);
   const [isAmberDemoOpen, setIsAmberDemoOpen] = useState(false);
+  const [isAmberDemoPending, setIsAmberDemoPending] = useState(false);
+  const [isWarningIgnored, setIsWarningIgnored] = useState(false);
   const [amberActionNote, setAmberActionNote] = useState('');
   const [isRedDemoOpen, setIsRedDemoOpen] = useState(false);
+  const [isRedDemoPending, setIsRedDemoPending] = useState(false);
   const [redActionNote, setRedActionNote] = useState('');
   const [redCountdown, setRedCountdown] = useState(10);
   const [highlightedRoute, setHighlightedRoute] = useState(null);
   const modalVideoRef = useRef(null);
+  const mapPanelRef = useRef(null);
+  const amberDelayTimerRef = useRef(null);
+  const redDelayTimerRef = useRef(null);
   const { cameras, getCameraDetails } = useCameraAnalytics(scene);
   const emotionDetection = useEmotionDetection(selectedCamera);
 
@@ -315,6 +321,17 @@ export default function App() {
   }, [isAmberDemoOpen]);
 
   useEffect(() => {
+    return () => {
+      if (amberDelayTimerRef.current) {
+        window.clearTimeout(amberDelayTimerRef.current);
+      }
+      if (redDelayTimerRef.current) {
+        window.clearTimeout(redDelayTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isRedDemoOpen) {
       return undefined;
     }
@@ -346,12 +363,30 @@ export default function App() {
       setHighlightedRoute(shortestExitRoute);
       setRedActionNote(t('demoCritical.autoSmsSent'));
       setIsRedDemoOpen(false);
+      window.setTimeout(() => {
+        mapPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 120);
     }
   }, [isRedDemoOpen, redCountdown, shortestExitRoute, t]);
 
   const openAmberDemo = () => {
+    if (isAmberDemoPending) {
+      return;
+    }
+
+    if (amberDelayTimerRef.current) {
+      window.clearTimeout(amberDelayTimerRef.current);
+    }
+
     setAmberActionNote('');
-    setIsAmberDemoOpen(true);
+    setIsAmberDemoPending(true);
+
+    amberDelayTimerRef.current = window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setIsAmberDemoOpen(true);
+      setIsAmberDemoPending(false);
+      amberDelayTimerRef.current = null;
+    }, 3000);
   };
 
   const closeAmberDemo = () => {
@@ -363,15 +398,31 @@ export default function App() {
   };
 
   const onAmberIgnore = () => {
+    setIsWarningIgnored(true);
     setAmberActionNote('');
     closeAmberDemo();
   };
 
   const openRedDemo = () => {
+    if (isRedDemoPending) {
+      return;
+    }
+
+    if (redDelayTimerRef.current) {
+      window.clearTimeout(redDelayTimerRef.current);
+    }
+
     setHighlightedRoute(null);
     setRedActionNote('');
     setRedCountdown(10);
-    setIsRedDemoOpen(true);
+    setIsRedDemoPending(true);
+
+    redDelayTimerRef.current = window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setIsRedDemoOpen(true);
+      setIsRedDemoPending(false);
+      redDelayTimerRef.current = null;
+    }, 3000);
   };
 
   const closeRedDemo = () => {
@@ -382,6 +433,9 @@ export default function App() {
     setHighlightedRoute(shortestExitRoute);
     setRedActionNote(t('demoCritical.smsSent'));
     closeRedDemo();
+    window.setTimeout(() => {
+      mapPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
   };
 
   const onRedIgnore = () => {
@@ -389,9 +443,25 @@ export default function App() {
     closeRedDemo();
   };
 
+  const isCriticalState = isRedDemoOpen || Boolean(highlightedRoute);
+  const isWarningState = (isAmberDemoOpen || isAmberDemoPending || isWarningIgnored) && !isCriticalState;
+  const showCriticalGlowBorder = !isRedDemoOpen && Boolean(highlightedRoute);
+
+  const headerClassName = `dashboard-header${isCriticalState
+    ? ' dashboard-header--critical'
+    : isWarningState
+      ? ' dashboard-header--warning'
+      : ''}`;
+
   return (
-    <div className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}`}>
-      <header className="dashboard-header">
+    <div
+      className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}${
+        isCriticalState ? ' dashboard-shell--critical' : ''
+      }`}
+    >
+      {showCriticalGlowBorder ? <div className="critical-screen-glow" aria-hidden="true" /> : null}
+
+      <header className={headerClassName}>
         <div className="logo-block">
           <span className="logo-badge">
             <img
@@ -462,7 +532,7 @@ export default function App() {
             </div>
           </aside>
 
-          <section className="map-panel" aria-label={t('sections.mapPreview')}>
+          <section ref={mapPanelRef} className="map-panel" aria-label={t('sections.mapPreview')}>
             <div className="map-inner map-inner--live">
               <LiveCommandMap mapData={scene?.map} highlightedRoute={highlightedRoute} />
             </div>
@@ -519,10 +589,13 @@ export default function App() {
             type="button"
             className="demo-btn demo-btn--orange"
             onClick={openAmberDemo}
+            disabled={isAmberDemoPending}
           >
-            DEMO
+            {isAmberDemoPending ? 'DEMO...' : 'DEMO'}
           </button>
-          <button type="button" className="demo-btn demo-btn--red" onClick={openRedDemo}>DEMO</button>
+          <button type="button" className="demo-btn demo-btn--red" onClick={openRedDemo} disabled={isRedDemoPending}>
+            {isRedDemoPending ? 'DEMO...' : 'DEMO'}
+          </button>
         </section>
 
         <ChatLauncherButton />
