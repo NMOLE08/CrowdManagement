@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const MAPBOX_JS_CDN = 'https://api.mapbox.com/mapbox-gl-js/v3.8.0/mapbox-gl.js';
 const MAPBOX_CSS_CDN = 'https://api.mapbox.com/mapbox-gl-js/v3.8.0/mapbox-gl.css';
@@ -140,9 +141,65 @@ function ensureClosedBoundary(boundary) {
 }
 
 export default function LiveCommandMap({ mapData }) {
+  const { t, i18n } = useTranslation();
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const token = import.meta.env.VITE_MAPBOX_TOKEN;
+
+  const zoneNameKeyByName = {
+    'Shivajinagar Hub': 'map.zoneNames.shivajinagar',
+    'Swargate Junction': 'map.zoneNames.swargate',
+    'Pune Station Gate': 'map.zoneNames.puneStation',
+    'Deccan Square': 'map.zoneNames.deccan',
+    'Sarasbaug Access': 'map.zoneNames.sarasbaug',
+  };
+
+  const exitNameKeyByName = {
+    'Laxmi Road': 'map.exitNames.laxmiRoad',
+    'Mamledar Kacheri': 'map.exitNames.mamledarKacheri',
+    'Subhanshah Dargah (Raviwar Peth)': 'map.exitNames.subhanshahDargah',
+    Perugate: 'map.exitNames.perugate',
+  };
+
+  const routeNameKeyByName = {
+    'Route 1 (Western Exit)': 'map.routeNames.route1',
+    'Route 2 (Northern Exit)': 'map.routeNames.route2',
+    'Route 3 (Eastern Exit)': 'map.routeNames.route3',
+    'Route 4 (South-Western Exit)': 'map.routeNames.route4',
+  };
+
+  const riskKeyByValue = {
+    'VERY HIGH': 'map.risk.veryHigh',
+    MODERATE: 'map.risk.moderate',
+    LOW: 'map.risk.low',
+  };
+
+  const localizeZoneName = (value) => {
+    const key = zoneNameKeyByName[value];
+    return key ? t(key) : value || t('map.unknownZone');
+  };
+
+  const localizeExitName = (value) => {
+    const key = exitNameKeyByName[value];
+    return key ? t(key) : value;
+  };
+
+  const localizeRouteName = (value) => {
+    const key = routeNameKeyByName[value];
+    return key ? t(key) : value;
+  };
+
+  const localizeRisk = (value) => {
+    const key = riskKeyByValue[value];
+    return key ? t(key) : value || t('common.na');
+  };
+
+  const localizeMainGateName = (value) => {
+    if (value === 'Main Gate') {
+      return t('map.mainGateName');
+    }
+    return value || t('map.mainGateName');
+  };
 
   const zones = Array.isArray(mapData?.zones) && mapData.zones.length > 0
     ? mapData.zones
@@ -379,15 +436,20 @@ export default function LiveCommandMap({ mapData }) {
 
           map.on('click', 'crowd-heatmap-hitbox', (event) => {
             const feature = event.features?.[0];
-            const zoneName = feature?.properties?.name || 'Heatmap Zone';
-            const risk = feature?.properties?.risk || 'N/A';
+            const zoneName = localizeZoneName(feature?.properties?.name || '');
+            const risk = localizeRisk(feature?.properties?.risk || '');
             const scoreRaw = Number(feature?.properties?.riskScore);
-            const score = Number.isFinite(scoreRaw) ? scoreRaw.toFixed(1) : 'N/A';
+            const score = Number.isFinite(scoreRaw)
+              ? scoreRaw.toLocaleString(i18n.language === 'mr' ? 'mr-IN' : 'en-IN', {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })
+              : t('common.na');
 
             new mapboxgl.Popup({ offset: 14 })
               .setLngLat(event.lngLat)
               .setHTML(
-                `<div class="map-popup"><h4>${zoneName}</h4><p><strong>Risk:</strong> ${risk}</p><p><strong>Score:</strong> ${score}</p></div>`
+                `<div class="map-popup"><h4>${zoneName}</h4><p><strong>${t('map.popupRiskLabel')}:</strong> ${risk}</p><p><strong>${t('map.popupScoreLabel')}:</strong> ${score}</p></div>`
               )
               .addTo(map);
           });
@@ -516,7 +578,7 @@ export default function LiveCommandMap({ mapData }) {
           });
 
           const gatePopup = new mapboxgl.Popup({ offset: 24 }).setHTML(
-            `<div class="map-popup"><h4>${mainGate.name || 'Main Gate'}</h4><p><strong>Location:</strong> ML-configured entry point</p></div>`
+            `<div class="map-popup"><h4>${localizeMainGateName(mainGate.name)}</h4><p><strong>${t('map.popupLocationLabel')}:</strong> ${t('map.mainGateDescription')}</p></div>`
           );
 
           new mapboxgl.Marker({ color: '#04c977', scale: 1.2 })
@@ -526,7 +588,7 @@ export default function LiveCommandMap({ mapData }) {
 
           emergencyExits.forEach((route) => {
             const exitPopup = new mapboxgl.Popup({ offset: 18 }).setHTML(
-              `<div class="map-popup"><h4>${route.route}</h4><p><strong>Exit Point:</strong> ${route.name}</p></div>`
+              `<div class="map-popup"><h4>${localizeRouteName(route.route)}</h4><p><strong>${t('map.popupExitPointLabel')}:</strong> ${localizeExitName(route.name)}</p></div>`
             );
 
             new mapboxgl.Marker({ color: '#ff3030', scale: 0.7 })
@@ -574,7 +636,7 @@ export default function LiveCommandMap({ mapData }) {
         mapRef.current = null;
       }
     };
-  }, [boundary, boundaryVertices, emergencyExits, mainGate, sourceData, token]);
+  }, [i18n.language, token]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -591,9 +653,9 @@ export default function LiveCommandMap({ mapData }) {
   if (!token) {
     return (
       <div className="map-fallback">
-        <p className="map-title">Live Command Map</p>
+        <p className="map-title">{t('map.fallbackTitle')}</p>
         <p className="map-subtitle">
-          Mapbox token missing. Add VITE_MAPBOX_TOKEN in your environment file.
+          {t('map.fallbackSubtitle')}
         </p>
       </div>
     );
@@ -601,7 +663,7 @@ export default function LiveCommandMap({ mapData }) {
 
   return (
     <div className="mapbox-wrapper">
-      <div ref={mapContainerRef} className="mapbox-canvas" aria-label="Mapbox live command map" />
+      <div ref={mapContainerRef} className="mapbox-canvas" aria-label={t('map.fallbackTitle')} />
     </div>
   );
 }

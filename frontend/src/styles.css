@@ -106,6 +106,36 @@ body {
   border-radius: 999px;
 }
 
+.header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid rgba(218, 244, 233, 0.42);
+  background: rgba(10, 11, 23, 0.35);
+  color: #ecfff5;
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.lang-toggle:hover {
+  background: rgba(10, 11, 23, 0.55);
+  border-color: rgba(218, 244, 233, 0.6);
+}
+
+.lang-toggle .fa-language {
+  font-size: 0.9rem;
+}
+
 .status-icon {
   color: var(--success);
   font-size: 0.85rem;

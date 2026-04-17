@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { requestChatOpen } from '../chat/chatLauncherBridge';
+import { useTranslation } from 'react-i18next';
 
 export default function ChatLauncherButton() {
+  const { t } = useTranslation();
   const [showHint, setShowHint] = useState(false);
 
   const onOpenChat = () => {
@@ -14,8 +16,8 @@ export default function ChatLauncherButton() {
       <button
         id="chat-launcher"
         className="chat-fab"
-        aria-label="Open assistant"
-        title="Open assistant"
+        aria-label={t('chat.openAssistant')}
+        title={t('chat.openAssistant')}
         data-chat-launcher="true"
         onClick={onOpenChat}
       >
@@ -24,7 +26,7 @@ export default function ChatLauncherButton() {
 
       {showHint ? (
         <div className="chat-fab-hint" role="status" aria-live="polite">
-          Chatbot not connected yet. Integrate by calling registerChatLauncher(openFn).
+          {t('chat.notConnectedHint')}
         </div>
       ) : null}
     </>
