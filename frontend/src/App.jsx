@@ -11,6 +11,12 @@ export default function App() {
   const { t, i18n } = useTranslation();
   const { scene, loading, error } = useMlSceneData(7000);
   const [selectedCamera, setSelectedCamera] = useState(null);
+  const [isAmberDemoOpen, setIsAmberDemoOpen] = useState(false);
+  const [amberActionNote, setAmberActionNote] = useState('');
+  const [isRedDemoOpen, setIsRedDemoOpen] = useState(false);
+  const [redActionNote, setRedActionNote] = useState('');
+  const [redCountdown, setRedCountdown] = useState(10);
+  const [highlightedRoute, setHighlightedRoute] = useState(null);
   const modalVideoRef = useRef(null);
   const { cameras, getCameraDetails } = useCameraAnalytics(scene);
   const emotionDetection = useEmotionDetection(selectedCamera);
@@ -146,6 +152,72 @@ export default function App() {
 
   const hotspotFromMap = getHotspotFromMapZones(scene?.map?.zones);
 
+  const shortestExitRoute = useMemo(() => {
+    const mainGateCoords = scene?.map?.main_gate?.coordinates;
+    const exits = Array.isArray(scene?.map?.emergency_exits) ? scene.map.emergency_exits : [];
+
+    if (!Array.isArray(mainGateCoords) || mainGateCoords.length < 2 || exits.length === 0) {
+      return null;
+    }
+
+    const toRadians = (value) => (value * Math.PI) / 180;
+    const haversineMeters = (a, b) => {
+      const [lng1, lat1] = a;
+      const [lng2, lat2] = b;
+
+      const dLat = toRadians(lat2 - lat1);
+      const dLng = toRadians(lng2 - lng1);
+      const rLat1 = toRadians(lat1);
+      const rLat2 = toRadians(lat2);
+      const earthRadius = 6371000;
+
+      const h =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(rLat1) * Math.cos(rLat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+      const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+      return earthRadius * c;
+    };
+
+    const ranked = exits
+      .filter((exitPoint) => Array.isArray(exitPoint?.coordinates) && exitPoint.coordinates.length >= 2)
+      .map((exitPoint) => ({
+        ...exitPoint,
+        distance: haversineMeters(mainGateCoords, exitPoint.coordinates),
+      }))
+      .sort((a, b) => a.distance - b.distance);
+
+    if (ranked.length === 0) {
+      return null;
+    }
+
+    const targetExit = ranked[0];
+    return {
+      coordinates: [mainGateCoords, targetExit.coordinates],
+      exitName: targetExit.name,
+      routeName: targetExit.route,
+    };
+  }, [scene?.map?.emergency_exits, scene?.map?.main_gate?.coordinates]);
+
+  const amberDemoCamera = useMemo(() => {
+    if (!Array.isArray(cameras) || cameras.length === 0) {
+      return null;
+    }
+
+    const ranked = [...cameras].sort((a, b) => {
+      const aCount = Number(getCameraDetails(a).count || 0);
+      const bCount = Number(getCameraDetails(b).count || 0);
+      return bCount - aCount;
+    });
+
+    return ranked[0] || null;
+  }, [cameras, getCameraDetails]);
+
+  const amberCameraCount = amberDemoCamera ? getCameraDetails(amberDemoCamera).count : 0;
+  const amberCameraLocation = amberDemoCamera
+    ? localizeLocation(getCameraDetails(amberDemoCamera).locationDetails)
+    : t('location.unavailable');
+
   const metrics = [
     {
       label: t('metrics.liveCount'),
@@ -227,8 +299,98 @@ export default function App() {
     }
   }, [selectedCamera]);
 
+  useEffect(() => {
+    if (!isAmberDemoOpen) {
+      return undefined;
+    }
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsAmberDemoOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isAmberDemoOpen]);
+
+  useEffect(() => {
+    if (!isRedDemoOpen) {
+      return undefined;
+    }
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsRedDemoOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isRedDemoOpen]);
+
+  useEffect(() => {
+    if (!isRedDemoOpen || redCountdown <= 0) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setRedCountdown((prev) => prev - 1);
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [isRedDemoOpen, redCountdown]);
+
+  useEffect(() => {
+    if (isRedDemoOpen && redCountdown === 0) {
+      setHighlightedRoute(shortestExitRoute);
+      setRedActionNote(t('demoCritical.autoSmsSent'));
+      setIsRedDemoOpen(false);
+    }
+  }, [isRedDemoOpen, redCountdown, shortestExitRoute, t]);
+
+  const openAmberDemo = () => {
+    setAmberActionNote('');
+    setIsAmberDemoOpen(true);
+  };
+
+  const closeAmberDemo = () => {
+    setIsAmberDemoOpen(false);
+  };
+
+  const onAmberSendSms = () => {
+    setAmberActionNote(t('demo.smsSent'));
+  };
+
+  const onAmberIgnore = () => {
+    setAmberActionNote('');
+    closeAmberDemo();
+  };
+
+  const openRedDemo = () => {
+    setHighlightedRoute(null);
+    setRedActionNote('');
+    setRedCountdown(10);
+    setIsRedDemoOpen(true);
+  };
+
+  const closeRedDemo = () => {
+    setIsRedDemoOpen(false);
+  };
+
+  const onRedSendSms = () => {
+    setHighlightedRoute(shortestExitRoute);
+    setRedActionNote(t('demoCritical.smsSent'));
+    closeRedDemo();
+  };
+
+  const onRedIgnore = () => {
+    setRedActionNote('');
+    closeRedDemo();
+  };
+
   return (
-    <div className="dashboard-shell">
+    <div className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}`}>
       <header className="dashboard-header">
         <div className="logo-block">
           <span className="logo-badge">
@@ -302,7 +464,7 @@ export default function App() {
 
           <section className="map-panel" aria-label={t('sections.mapPreview')}>
             <div className="map-inner map-inner--live">
-              <LiveCommandMap mapData={scene?.map} />
+              <LiveCommandMap mapData={scene?.map} highlightedRoute={highlightedRoute} />
             </div>
           </section>
         </section>
@@ -350,6 +512,17 @@ export default function App() {
               </article>
             ))}
           </div>
+        </section>
+
+        <section className="demo-actions" aria-label="Demo actions">
+          <button
+            type="button"
+            className="demo-btn demo-btn--orange"
+            onClick={openAmberDemo}
+          >
+            DEMO
+          </button>
+          <button type="button" className="demo-btn demo-btn--red" onClick={openRedDemo}>DEMO</button>
         </section>
 
         <ChatLauncherButton />
@@ -425,6 +598,158 @@ export default function App() {
                 <p className="camera-modal__location-title">{t('camera.locationDetails')}</p>
                 <p className="camera-modal__location-text">{activeCameraStats.locationDetails}</p>
               </div>
+            </section>
+          </div>
+        ) : null}
+
+        {isAmberDemoOpen ? (
+          <div
+            className="amber-overlay"
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                closeAmberDemo();
+              }
+            }}
+          >
+            <section className="amber-card" role="dialog" aria-modal="true" aria-label={t('demo.title')}>
+              <button
+                type="button"
+                className="amber-close"
+                aria-label={t('demo.close')}
+                onClick={closeAmberDemo}
+              >
+                ×
+              </button>
+
+              <div className="amber-title-pill">{t('demo.title')}</div>
+
+              <p className="amber-warning-text">{t('demo.warningText')}</p>
+
+              <div className="amber-content-grid">
+                <article className="amber-live-panel">
+                  <div className="amber-live-frame">
+                    {amberDemoCamera?.streamUrl ? (
+                      <video
+                        className="amber-live-video"
+                        src={amberDemoCamera.streamUrl}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <div className="amber-live-fallback">{t('demo.liveCameraFeed')}</div>
+                    )}
+                  </div>
+                  <p className="amber-location-text">
+                    <span>{t('camera.locationDetails')}:</span> {amberCameraLocation}
+                  </p>
+                </article>
+
+                <aside className="amber-insight-panel">
+                  <div className="amber-info-box">
+                    <p className="amber-info-title">{t('demo.crowdDensity')}</p>
+                    <p className="amber-info-value">{formatLocalizedNumber(amberCameraCount)}</p>
+                    <p className="amber-info-sub">{t('demo.neutralExpression')}</p>
+                  </div>
+
+                  <div className="amber-info-box amber-info-box--ai">
+                    <p className="amber-info-title">{t('demo.aiSuggestion')}</p>
+                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{t('demo.rerouteGate2')}</p>
+                  </div>
+                </aside>
+              </div>
+
+              <div className="amber-actions">
+                <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onAmberSendSms}>
+                  {t('demo.sendSms')}
+                </button>
+                <button type="button" className="amber-action-btn amber-action-btn--ignore" onClick={onAmberIgnore}>
+                  {t('demo.ignore')}
+                </button>
+              </div>
+
+              {amberActionNote ? <p className="amber-action-note">{amberActionNote}</p> : null}
+            </section>
+          </div>
+        ) : null}
+
+        {isRedDemoOpen ? (
+          <div
+            className="amber-overlay amber-overlay--critical"
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                closeRedDemo();
+              }
+            }}
+          >
+            <section className="amber-card amber-card--critical" role="dialog" aria-modal="true" aria-label={t('demoCritical.title')}>
+              <button
+                type="button"
+                className="amber-close amber-close--critical"
+                aria-label={t('demoCritical.close')}
+                onClick={closeRedDemo}
+              >
+                ×
+              </button>
+
+              <div className="amber-title-pill amber-title-pill--critical">{t('demoCritical.title')}</div>
+
+              <p className="amber-warning-text">{t('demoCritical.warningText')}</p>
+
+              <div className="amber-content-grid">
+                <article className="amber-live-panel">
+                  <div className="amber-live-frame">
+                    {amberDemoCamera?.streamUrl ? (
+                      <video
+                        className="amber-live-video"
+                        src={amberDemoCamera.streamUrl}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <div className="amber-live-fallback">{t('demoCritical.liveCameraFeed')}</div>
+                    )}
+                  </div>
+                  <p className="amber-location-text">
+                    <span>{t('camera.locationDetails')}:</span> {amberCameraLocation}
+                  </p>
+                </article>
+
+                <aside className="amber-insight-panel">
+                  <div className="amber-info-box">
+                    <p className="amber-info-title">{t('demoCritical.crowdDensity')}</p>
+                    <p className="amber-info-value">{formatLocalizedNumber(amberCameraCount)}</p>
+                    <p className="amber-info-sub">{t('demoCritical.neutralExpression')}</p>
+                  </div>
+
+                  <div className="amber-info-box amber-info-box--ai amber-info-box--critical-ai">
+                    <p className="amber-info-title">{t('demoCritical.aiSuggestion')}</p>
+                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{t('demoCritical.rerouteNearestExit')}</p>
+                  </div>
+                </aside>
+              </div>
+
+              <p className="critical-countdown">
+                {t('demoCritical.countdownLabel')}: {formatLocalizedNumber(redCountdown)}
+              </p>
+
+              <div className="amber-actions">
+                <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onRedSendSms}>
+                  {t('demoCritical.sendSms')}
+                </button>
+                <button type="button" className="amber-action-btn amber-action-btn--ignore" onClick={onRedIgnore}>
+                  {t('demoCritical.ignore')}
+                </button>
+              </div>
+
+              {redActionNote ? <p className="amber-action-note">{redActionNote}</p> : null}
             </section>
           </div>
         ) : null}

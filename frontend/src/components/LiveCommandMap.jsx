@@ -140,7 +140,7 @@ function ensureClosedBoundary(boundary) {
   return [...boundary, [firstLng, firstLat]];
 }
 
-export default function LiveCommandMap({ mapData }) {
+export default function LiveCommandMap({ mapData, highlightedRoute }) {
   const { t, i18n } = useTranslation();
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -577,6 +577,31 @@ export default function LiveCommandMap({ mapData }) {
             },
           });
 
+          map.addSource('auto-evac-route', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: [],
+            },
+          });
+
+          map.addLayer({
+            id: 'auto-evac-route-line',
+            type: 'line',
+            source: 'auto-evac-route',
+            layout: {
+              visibility: 'none',
+              'line-cap': 'round',
+              'line-join': 'round',
+            },
+            paint: {
+              'line-color': '#ef5b5b',
+              'line-width': 6,
+              'line-opacity': 0.96,
+              'line-blur': 0.2,
+            },
+          });
+
           const gatePopup = new mapboxgl.Popup({ offset: 24 }).setHTML(
             `<div class="map-popup"><h4>${localizeMainGateName(mainGate.name)}</h4><p><strong>${t('map.popupLocationLabel')}:</strong> ${t('map.mainGateDescription')}</p></div>`
           );
@@ -649,6 +674,40 @@ export default function LiveCommandMap({ mapData }) {
       zonesSource.setData(sourceData);
     }
   }, [sourceData]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+
+    const routeSource = map.getSource('auto-evac-route');
+    const routeLayerExists = Boolean(map.getLayer('auto-evac-route-line'));
+    const coords = Array.isArray(highlightedRoute?.coordinates) ? highlightedRoute.coordinates : [];
+    const showRoute = coords.length >= 2;
+
+    if (routeSource) {
+      routeSource.setData({
+        type: 'FeatureCollection',
+        features: showRoute
+          ? [
+            {
+              type: 'Feature',
+              geometry: {
+                type: 'LineString',
+                coordinates: coords,
+              },
+              properties: {},
+            },
+          ]
+          : [],
+      });
+    }
+
+    if (routeLayerExists) {
+      map.setLayoutProperty('auto-evac-route-line', 'visibility', showRoute ? 'visible' : 'none');
+    }
+  }, [highlightedRoute]);
 
   if (!token) {
     return (
