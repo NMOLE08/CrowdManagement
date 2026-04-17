@@ -178,6 +178,74 @@ function buildDirectionsUrl(token, start, end) {
   return `https://api.mapbox.com/directions/v5/mapbox/walking/${coordinates}?alternatives=false&continue_straight=true&geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(token)}`;
 }
 
+function buildBoundaryHeatSourceData(boundary) {
+  const ring = Array.isArray(boundary) ? boundary.slice(0, -1) : [];
+  if (ring.length < 3) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const centroid = ring.reduce(
+    (acc, point) => {
+      acc.lng += Number(point?.[0] || 0);
+      acc.lat += Number(point?.[1] || 0);
+      return acc;
+    },
+    { lng: 0, lat: 0 }
+  );
+
+  centroid.lng /= ring.length;
+  centroid.lat /= ring.length;
+
+  const targetPointCount = 3;
+  const intensities = [1.0, 0.9, 0.82];
+  const factors = [0.76, 0.74, 0.78];
+
+  const features = Array.from({ length: targetPointCount }, (_, index) => {
+    const vertexIndex = Math.floor((index * ring.length) / targetPointCount) % ring.length;
+    const vertex = ring[vertexIndex];
+    const factor = factors[index] || 0.72;
+
+    const lng = centroid.lng + (vertex[0] - centroid.lng) * factor;
+    const lat = centroid.lat + (vertex[1] - centroid.lat) * factor;
+
+    return {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [lng, lat],
+      },
+      properties: {
+        intensity: intensities[index] || 0.72,
+      },
+    };
+  });
+
+  return {
+    type: 'FeatureCollection',
+    features,
+  };
+}
+
+function buildOutsideBoundaryMaskData(boundary) {
+  const outerRing = [
+    [-180, -85],
+    [180, -85],
+    [180, 85],
+    [-180, 85],
+    [-180, -85],
+  ];
+
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      // Second ring creates a hole so only outside of the crowd boundary gets darkened.
+      coordinates: [outerRing, boundary],
+    },
+    properties: {},
+  };
+}
+
 export default function LiveCommandMap({ mapData, highlightedRoute }) {
   const { t, i18n } = useTranslation();
   const mapContainerRef = useRef(null);
@@ -334,6 +402,21 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
     }),
     [heatmapPoints]
   );
+
+  const boundarySourceData = useMemo(
+    () => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [boundary],
+      },
+      properties: {},
+    }),
+    [boundary]
+  );
+
+  const outsideBoundaryMaskData = useMemo(() => buildOutsideBoundaryMaskData(boundary), [boundary]);
+  const boundaryHeatSourceData = useMemo(() => buildBoundaryHeatSourceData(boundary), [boundary]);
 
   useEffect(() => {
     if (!token || !mapContainerRef.current || mapRef.current) {
@@ -567,13 +650,21 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
 
           map.addSource('crowd-boundary', {
             type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: {
-                type: 'Polygon',
-                coordinates: [boundary],
-              },
-              properties: {},
+            data: boundarySourceData,
+          });
+
+          map.addSource('crowd-boundary-outside-mask', {
+            type: 'geojson',
+            data: outsideBoundaryMaskData,
+          });
+
+          map.addLayer({
+            id: 'crowd-boundary-outside-mask-layer',
+            type: 'fill',
+            source: 'crowd-boundary-outside-mask',
+            paint: {
+              'fill-color': '#04070e',
+              'fill-opacity': 0.58,
             },
           });
 
@@ -584,6 +675,55 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
             paint: {
               'fill-color': '#4f6f92',
               'fill-opacity': 0.14,
+            },
+          });
+
+          map.addSource('crowd-boundary-heat', {
+            type: 'geojson',
+            data: boundaryHeatSourceData,
+          });
+
+          map.addLayer({
+            id: 'crowd-boundary-heatmap',
+            type: 'heatmap',
+            source: 'crowd-boundary-heat',
+            maxzoom: 24,
+            paint: {
+              'heatmap-weight': ['get', 'intensity'],
+              'heatmap-intensity': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10,
+                1.3,
+                16,
+                2.2,
+              ],
+              'heatmap-color': [
+                'interpolate',
+                ['linear'],
+                ['heatmap-density'],
+                0,
+                'rgba(0,0,0,0)',
+                0.2,
+                'rgba(28,155,76,0.46)',
+                0.45,
+                'rgba(71,194,93,0.78)',
+                0.72,
+                'rgba(224,199,53,0.9)',
+                1,
+                'rgba(255,220,74,0.98)',
+              ],
+              'heatmap-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10,
+                16,
+                16,
+                30,
+              ],
+              'heatmap-opacity': 0.95,
             },
           });
 
@@ -708,10 +848,24 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
           map.fitBounds(focusBounds, {
             padding: { top: 50, bottom: 50, left: 50, right: 50 },
             maxZoom: 15.8,
+            duration: 1100,
+            essential: true,
           });
 
-          // Keep map in 3D after fitBounds normalization.
-          map.once('moveend', () => apply3DView(map));
+          // On first load, run a clear 3D intro zoom (+20%) once the map has settled.
+          map.once('idle', () => {
+            const currentZoom = map.getZoom();
+            const targetZoom = Math.min(currentZoom * 1.2, 19);
+            map.flyTo({
+              center: mainGate.coordinates,
+              zoom: targetZoom,
+              pitch: 60,
+              bearing: -20,
+              speed: 0.55,
+              curve: 1.25,
+              essential: true,
+            });
+          });
 
         });
 
@@ -753,7 +907,22 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
     if (zonesSource) {
       zonesSource.setData(sourceData);
     }
-  }, [sourceData]);
+
+    const boundarySource = map.getSource('crowd-boundary');
+    if (boundarySource) {
+      boundarySource.setData(boundarySourceData);
+    }
+
+    const outsideMaskSource = map.getSource('crowd-boundary-outside-mask');
+    if (outsideMaskSource) {
+      outsideMaskSource.setData(outsideBoundaryMaskData);
+    }
+
+    const boundaryHeatSource = map.getSource('crowd-boundary-heat');
+    if (boundaryHeatSource) {
+      boundaryHeatSource.setData(boundaryHeatSourceData);
+    }
+  }, [boundaryHeatSourceData, boundarySourceData, outsideBoundaryMaskData, sourceData]);
 
   useEffect(() => {
     const map = mapRef.current;

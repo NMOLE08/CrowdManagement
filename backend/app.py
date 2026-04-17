@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from datetime import datetime, timezone
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
+from fpdf import FPDF
 
 app = Flask(__name__)
 CORS(app)
@@ -126,9 +130,68 @@ DEFAULT_STATE: dict[str, Any] = {
 
 state: dict[str, Any] = deepcopy(DEFAULT_STATE)
 
+OUTPUT_DIR = Path(__file__).resolve().parent / "output"
+CAM_FRAME_FILES: dict[int, list[str]] = {
+    2: ["cam2.jsonl", "can2.jsonl"],
+    3: ["cam3.jsonl"],
+    4: ["cam4.jsonl"],
+    5: ["cam5.jsonl"],
+    6: ["cam6.jsonl"],
+}
+CAM_FRAME_CACHE: dict[int, list[dict[str, Any]]] = {}
+CAM_FRAME_INDEX: dict[int, int] = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+
 
 def _touch() -> None:
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def _load_camera_frames(cam_id: int) -> list[dict[str, Any]]:
+    if cam_id in CAM_FRAME_CACHE:
+        return CAM_FRAME_CACHE[cam_id]
+
+    frames: list[dict[str, Any]] = []
+    for filename in CAM_FRAME_FILES.get(cam_id, []):
+        file_path = OUTPUT_DIR / filename
+        if not file_path.exists():
+            continue
+
+        with file_path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                row = line.strip()
+                if not row:
+                    continue
+                try:
+                    parsed = json.loads(row)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict):
+                    frames.append(parsed)
+
+        if frames:
+            break
+
+    CAM_FRAME_CACHE[cam_id] = frames
+    return frames
+
+
+def _next_camera_frame(cam_id: int) -> dict[str, Any] | None:
+    frames = _load_camera_frames(cam_id)
+    if not frames:
+        return None
+
+    current_index = CAM_FRAME_INDEX.get(cam_id, 0) % len(frames)
+    frame = frames[current_index]
+    CAM_FRAME_INDEX[cam_id] = (current_index + 1) % len(frames)
+    return {
+        "camera_id": cam_id,
+        "frame_id": frame.get("frame_id"),
+        "timestamp_sec": frame.get("timestamp_sec"),
+        "head_count": frame.get("head_count", 0),
+        "panic_label": frame.get("panic_label", "GREEN"),
+        "panic_prob": frame.get("panic_prob", 0.0),
+        "latency_ms": frame.get("latency_ms"),
+    }
 
 
 @app.get("/health")
@@ -157,6 +220,31 @@ def metrics():
     return jsonify({"updated_at": state["updated_at"], "metrics": state["metrics"]})
 
 
+@app.get("/api/v1/camera-frame-stats")
+def camera_frame_stats():
+    requested_cam = request.args.get("camera_id", type=int)
+
+    if requested_cam is not None:
+        if requested_cam not in CAM_FRAME_FILES:
+            return jsonify({"error": "camera_id must be between 2 and 6"}), 400
+
+        frame = _next_camera_frame(requested_cam)
+        if frame is None:
+            return jsonify({"camera_id": requested_cam, "available": False, "frame": None})
+        return jsonify({"camera_id": requested_cam, "available": True, "frame": frame})
+
+    frames_by_camera: dict[str, Any] = {}
+    for cam_id in CAM_FRAME_FILES:
+        frames_by_camera[str(cam_id)] = _next_camera_frame(cam_id)
+
+    return jsonify(
+        {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "frames": frames_by_camera,
+        }
+    )
+
+
 @app.post("/api/v1/model-output")
 def ingest_model_output():
     """
@@ -182,6 +270,79 @@ def reset_state():
     state.update(deepcopy(DEFAULT_STATE))
     _touch()
     return jsonify({"status": "reset", "updated_at": state["updated_at"]})
+
+
+def _safe_pdf_text(value: Any) -> str:
+    text = str(value)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+@app.post("/api/v1/planning/report-pdf")
+def planning_report_pdf():
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Payload must be a JSON object"}), 400
+
+    placements = payload.get("placements") or []
+    if not isinstance(placements, list):
+        return jsonify({"error": "placements must be a list"}), 400
+
+    boundary_coordinates = payload.get("boundaryCoordinates") or []
+    if not isinstance(boundary_coordinates, list):
+        boundary_coordinates = []
+
+    counts: dict[str, int] = {}
+    for item in placements:
+        tool_id = str((item or {}).get("toolId", "unknown"))
+        counts[tool_id] = counts.get(tool_id, 0) + 1
+
+    generated_at = payload.get("generatedAt") or datetime.now(timezone.utc).isoformat()
+
+    pdf = FPDF(unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, _safe_pdf_text("CrowdShield Planning Report"), ln=True)
+
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(0, 7, _safe_pdf_text(f"Generated At: {generated_at}"), ln=True)
+    pdf.cell(0, 7, _safe_pdf_text(f"Total Placements: {len(placements)}"), ln=True)
+    pdf.cell(0, 7, _safe_pdf_text(f"Boundary Points: {len(boundary_coordinates)}"), ln=True)
+
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, _safe_pdf_text("Placement Summary"), ln=True)
+    pdf.set_font("Helvetica", "", 11)
+
+    if counts:
+        for tool_id, count in sorted(counts.items()):
+            pdf.cell(0, 7, _safe_pdf_text(f"- {tool_id}: {count}"), ln=True)
+    else:
+        pdf.cell(0, 7, _safe_pdf_text("- No tools placed"), ln=True)
+
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, _safe_pdf_text("Placement Details"), ln=True)
+    pdf.set_font("Helvetica", "", 10)
+
+    if placements:
+        for idx, item in enumerate(placements, start=1):
+            tool_id = _safe_pdf_text((item or {}).get("toolId", "unknown"))
+            lat = _safe_pdf_text((item or {}).get("lat", ""))
+            lng = _safe_pdf_text((item or {}).get("lng", ""))
+            pdf.multi_cell(0, 6, _safe_pdf_text(f"{idx}. {tool_id}  lat: {lat}, lng: {lng}"))
+    else:
+        pdf.cell(0, 7, _safe_pdf_text("No placement entries."), ln=True)
+
+    pdf_bytes = bytes(pdf.output(dest="S"))
+    buffer = BytesIO(pdf_bytes)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=crowdshield-plan-report.pdf"},
+    )
 
 
 if __name__ == "__main__":

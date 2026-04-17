@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import LiveCommandMap from './components/LiveCommandMap';
 import ChatLauncherButton from './components/ChatLauncherButton';
+import PlanningPage from './components/PlanningPage';
 import { useMlSceneData } from './hooks/useMlSceneData';
 import { useCameraAnalytics } from './hooks/useCameraAnalytics';
 import { useEmotionDetection } from './hooks/useEmotionDetection';
 import { useTranslation } from 'react-i18next';
 import crowdLogo from './assets/CrowdLogo.png';
+import crowdnameLogo from './assets/CrowdnameLogo.png';
 
 export default function App() {
   const { t, i18n } = useTranslation();
   const { scene, loading, error } = useMlSceneData(7000);
-  const [selectedCamera, setSelectedCamera] = useState(null);
+  const [selectedCameraId, setSelectedCameraId] = useState(null);
   const [isAmberDemoOpen, setIsAmberDemoOpen] = useState(false);
   const [isAmberDemoPending, setIsAmberDemoPending] = useState(false);
   const [isWarningIgnored, setIsWarningIgnored] = useState(false);
+  const [isPlanningViewOpen, setIsPlanningViewOpen] = useState(false);
   const [amberActionNote, setAmberActionNote] = useState('');
   const [isRedDemoOpen, setIsRedDemoOpen] = useState(false);
   const [isRedDemoPending, setIsRedDemoPending] = useState(false);
@@ -25,6 +28,10 @@ export default function App() {
   const amberDelayTimerRef = useRef(null);
   const redDelayTimerRef = useRef(null);
   const { cameras, getCameraDetails } = useCameraAnalytics(scene);
+  const selectedCamera = useMemo(
+    () => cameras.find((cam) => cam.id === selectedCameraId) || null,
+    [cameras, selectedCameraId]
+  );
   const emotionDetection = useEmotionDetection(selectedCamera);
 
   const emotionKeyByName = {
@@ -36,8 +43,10 @@ export default function App() {
 
   const locationKeyByText = {
     'East gate approach lane, Dagdusheth Temple perimeter.': 'location.cam1',
+    'East Gate approach lane, Dagdusheth Temple perimeter.': 'location.cam1',
     'North barricade checkpoint near vendor corridor.': 'location.cam2',
     'South lane queue spillover near utility gate.': 'location.cam3',
+    'South lane queue spillover near utility Gate.': 'location.cam3',
     'Inner ring walkway near barricade turn.': 'location.cam4',
     'Vendor-side corridor near hydration point.': 'location.cam5',
     'Temple exit merge lane near crowd diversion rope.': 'location.cam6',
@@ -57,6 +66,18 @@ export default function App() {
     'Pune Station Gate': 'map.zoneNames.puneStation',
     'Deccan Square': 'map.zoneNames.deccan',
     'Sarasbaug Access': 'map.zoneNames.sarasbaug',
+  };
+
+  const exitNameKeyByName = {
+    'Sevasadan Chowk': 'map.exitNames.sevasadanChowk',
+    'Laxmi Road': 'map.exitNames.laxmiRoad',
+    'Tilak Road': 'map.exitNames.tilakRoad',
+    'Mamledar Kacheri': 'map.exitNames.mamledarKacheri',
+    'Jayantrao Tilak Bridge': 'map.exitNames.jayantraoTilakBridge',
+    'Subhanshah Dargah (Raviwar Peth)': 'map.exitNames.subhanshahDargah',
+    'Govind Halwai Chowk': 'map.exitNames.govindHalwaiChowk',
+    Perugate: 'map.exitNames.perugate',
+    'Maharana Pratap Udyan': 'map.exitNames.maharanaPratapUdyan',
   };
 
   const cameraTitleKeyByName = {
@@ -91,6 +112,11 @@ export default function App() {
   const localizeAlertMessage = (value) => {
     const key = alertKeyByMessage[value];
     return key ? t(key) : value || t('alerts.pending');
+  };
+
+  const localizeExitName = (value) => {
+    const key = exitNameKeyByName[value];
+    return key ? t(key) : value || t('common.na');
   };
 
   const localizeSystemValue = (value) => {
@@ -205,6 +231,10 @@ export default function App() {
     };
   }, [scene?.map?.emergency_exits, scene?.map?.main_gate?.coordinates]);
 
+  const criticalRouteExitLabel = shortestExitRoute
+    ? localizeExitName(shortestExitRoute.exitName)
+    : t('common.na');
+
   const amberDemoCamera = useMemo(() => {
     if (!Array.isArray(cameras) || cameras.length === 0) {
       return null;
@@ -224,14 +254,36 @@ export default function App() {
     ? localizeLocation(getCameraDetails(amberDemoCamera).locationDetails)
     : t('location.unavailable');
 
+  const dynamicLiveCount = useMemo(() => {
+    if (!Array.isArray(cameras) || cameras.length === 0) {
+      return Number(scene?.metrics?.live_count || 0);
+    }
+
+    return cameras.reduce((sum, camera) => {
+      const count = Number(getCameraDetails(camera).count || 0);
+      return sum + (Number.isFinite(count) ? count : 0);
+    }, 0);
+  }, [cameras, getCameraDetails, scene?.metrics?.live_count]);
+
+  const gate4HotspotValue = useMemo(() => {
+    const gate4Camera = cameras.find((camera) => {
+      const title = String(camera?.title || camera?.name || '').trim().toLowerCase();
+      return camera?.id === 5 || title === 'cam5';
+    });
+
+    const gate4Count = Number(getCameraDetails(gate4Camera).count || 0);
+    const normalizedCount = Number.isFinite(gate4Count) ? gate4Count : 0;
+    return `${localizeCameraTitle('cam5')} - ${formatLocalizedNumber(normalizedCount)}`;
+  }, [cameras, getCameraDetails]);
+
   const metrics = [
     {
       label: t('metrics.liveCount'),
-      value: formatLocalizedNumber(scene?.metrics?.live_count || 0),
+      value: formatLocalizedNumber(dynamicLiveCount),
     },
     {
       label: t('metrics.hotspot'),
-      value: hotspotFromMap || localizeHotspotValue(scene?.metrics?.hotspot),
+      value: gate4HotspotValue,
     },
     {
       label: t('metrics.system'),
@@ -284,7 +336,7 @@ export default function App() {
 
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
-        setSelectedCamera(null);
+        setSelectedCameraId(null);
       }
     };
 
@@ -453,6 +505,10 @@ export default function App() {
       ? ' dashboard-header--warning'
       : ''}`;
 
+  if (isPlanningViewOpen) {
+    return <PlanningPage mapData={scene?.map} onBackToDashboard={() => setIsPlanningViewOpen(false)} />;
+  }
+
   return (
     <div
       className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}${
@@ -478,16 +534,36 @@ export default function App() {
             />
             <span className="logo-fallback">CS</span>
           </span>
-          <div>
-            <p className="logo-title">CrowdShield</p>
-            <p className="logo-subtitle">{t('header.subtitle')}</p>
-          </div>
+          <img
+            src={crowdnameLogo}
+            alt="CrowdShield"
+            className="logo-wordmark"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
         </div>
 
         <div className="header-right">
+          <button
+            type="button"
+            className="plan-toggle"
+            onClick={() => setIsPlanningViewOpen(true)}
+          >
+            <i className="fa-solid fa-map-location-dot" aria-hidden="true" />
+            <span>{t('header.planEvent')}</span>
+          </button>
           <div className="status-block" aria-live="polite">
             <span className="status-icon" aria-hidden="true">◉</span>
-            <span>{error ? t('status.backendOffline') : loading ? t('status.syncing') : t('status.allOkay')}</span>
+            <span>
+              {error
+                ? t('status.backendOffline')
+                : loading
+                  ? t('status.syncing')
+                  : isWarningState
+                    ? t('status.warning')
+                    : t('status.allOkay')}
+            </span>
           </div>
           <button
             type="button"
@@ -547,15 +623,15 @@ export default function App() {
           <div className="camera-board" aria-label={t('sections.cameraFeeds')}>
             {cameras.map((cam) => (
               <article
-                className={`camera-card${cam.live ? ' camera-card--live' : ''}`}
+                className={`camera-card${cam.live ? ' camera-card--live' : ''}${cam.id === 5 ? ' camera-card--gate4' : ''}`}
                 key={cam.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => setSelectedCamera(cam)}
+                onClick={() => setSelectedCameraId(cam.id)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    setSelectedCamera(cam);
+                    setSelectedCameraId(cam.id);
                   }
                 }}
               >
@@ -606,7 +682,7 @@ export default function App() {
             role="presentation"
             onClick={(event) => {
               if (event.target === event.currentTarget) {
-                setSelectedCamera(null);
+                setSelectedCameraId(null);
               }
             }}
           >
@@ -615,7 +691,7 @@ export default function App() {
                 type="button"
                 className="camera-modal__close"
                 aria-label={t('camera.closeDetails')}
-                onClick={() => setSelectedCamera(null)}
+                onClick={() => setSelectedCameraId(null)}
               >
                 ×
               </button>
@@ -804,7 +880,10 @@ export default function App() {
 
                   <div className="amber-info-box amber-info-box--ai amber-info-box--critical-ai">
                     <p className="amber-info-title">{t('demoCritical.aiSuggestion')}</p>
-                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">{t('demoCritical.rerouteNearestExit')}</p>
+                    <p className="amber-info-value amber-info-value--text amber-info-value--ai">
+                      {t('demoCritical.rerouteNearestExit', { exit: criticalRouteExitLabel })}
+                    </p>
+                    <p className="amber-info-sub">{t('demoCritical.pinLocation', { exit: criticalRouteExitLabel })}</p>
                   </div>
                 </aside>
               </div>
