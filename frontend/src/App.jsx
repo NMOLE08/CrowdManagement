@@ -74,17 +74,6 @@ export default function App() {
 
   const numberLocale = i18n.language === 'mr' ? 'mr-IN' : 'en-IN';
 
-  const formatStatusTime = (isoTime) => {
-    if (!isoTime) {
-      return t('common.na');
-    }
-    const date = new Date(isoTime);
-    if (Number.isNaN(date.getTime())) {
-      return t('common.na');
-    }
-    return date.toLocaleString(numberLocale);
-  };
-
   const headerStatusText = !systemStatus?.networkOnline
     ? t('fallback.networkOffline')
     : loading
@@ -92,16 +81,6 @@ export default function App() {
       : systemStatus?.isFallbackActive
         ? t('status.fallbackMode')
         : t('status.allOkay');
-
-  const fallbackModeLabel = systemStatus?.isFallbackActive
-    ? t('fallback.modeFallback')
-    : t('fallback.modeLive');
-
-  const fallbackSourceLabel = systemStatus?.dataSource === 'live'
-    ? t('fallback.sourceLive')
-    : systemStatus?.dataSource === 'cache'
-      ? t('fallback.sourceCache')
-      : t('fallback.sourceDefault');
 
   const formatLocalizedNumber = (value) => {
     const numeric = Number(value);
@@ -551,8 +530,7 @@ export default function App() {
 
   return (
     <div className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}`}>
-      <header className={`dashboard-header${systemStatus?.isFallbackActive ? ' dashboard-header--emergency' : ''}`}>
-
+      <header className="dashboard-header">
         <div className="logo-block">
           <span className="logo-badge">
             <img
@@ -641,7 +619,7 @@ export default function App() {
             <div className="camera-board" aria-label={t('sections.cameraFeeds')}>
               {cameras.map((cam) => (
                 <article
-                  className={`camera-card${cam.live ? ' camera-card--live' : ''}`}
+                  className={`camera-card${cam.live ? ' camera-card--live' : ''}${cam.id === 5 ? ' camera-card--gate4' : ''}`}
                   key={cam.id}
                   role="button"
                   tabIndex={0}

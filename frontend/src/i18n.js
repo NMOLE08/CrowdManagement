@@ -142,8 +142,8 @@ const resources = {
         welcome: 'Hello. I am CrowdShield AI. Ask me about live crowd risk, nearby routes, or safe movement recommendations.',
         placeholder: 'Ask CrowdShield AI...',
         send: 'Send',
-        errorOffline: 'SYSTEM DISCONNECTED: FIXING IS ONGOING... PLEASE STAND BY',
-        emergencyHelp: 'SYSTEM DISCONNECTED: FIXING IS ONGOING... PLEASE STAND BY',
+        errorOffline: 'SYSTEM OFFLINE: AI Assistant is currently unreachable due to network failure. Please follow emergency protocols listed on your dashboard.',
+        emergencyHelp: 'This is an emergency fallback interface. Live AI coordination is unavailable, but you can view the last known safety snapshots and evacuation routes.',
       },
       demo: {
         title: 'WARNING !!',

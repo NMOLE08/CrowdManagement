@@ -102,10 +102,22 @@ const DEFAULT_MAIN_GATE = {
 
 const DEFAULT_EMERGENCY_EXITS = [
   {
+    id: 'route-1-sevasadan-chowk',
+    route: 'Route 1 (Western Exit)',
+    name: 'Sevasadan Chowk',
+    coordinates: [73.8504, 18.5134],
+  },
+  {
     id: 'route-1-west',
     route: 'Route 1 (Western Exit)',
     name: 'Laxmi Road',
     coordinates: [73.8487, 18.5140],
+  },
+  {
+    id: 'route-1-tilak-road',
+    route: 'Route 1 (Western Exit)',
+    name: 'Tilak Road',
+    coordinates: [73.8447, 18.5111],
   },
   {
     id: 'route-2-north',
@@ -114,16 +126,34 @@ const DEFAULT_EMERGENCY_EXITS = [
     coordinates: [73.8581, 18.5067],
   },
   {
+    id: 'route-2-jayantrao-tilak-bridge',
+    route: 'Route 2 (Northern Exit)',
+    name: 'Jayantrao Tilak Bridge',
+    coordinates: [73.8532, 18.5214],
+  },
+  {
     id: 'route-3-east',
     route: 'Route 3 (Eastern Exit)',
     name: 'Subhanshah Dargah (Raviwar Peth)',
     coordinates: [73.8605, 18.5152],
   },
   {
+    id: 'route-3-govind-halwai-chowk',
+    route: 'Route 3 (Eastern Exit)',
+    name: 'Govind Halwai Chowk',
+    coordinates: [73.8618, 18.5130],
+  },
+  {
     id: 'route-4-southwest',
     route: 'Route 4 (South-Western Exit)',
     name: 'Perugate',
     coordinates: [73.8487, 18.5114],
+  },
+  {
+    id: 'route-4-maharana-pratap-udyan',
+    route: 'Route 4 (South-Western Exit)',
+    name: 'Maharana Pratap Udyan',
+    coordinates: [73.8536, 18.5101],
   },
 ];
 
@@ -138,6 +168,82 @@ function ensureClosedBoundary(boundary) {
     return boundary;
   }
   return [...boundary, [firstLng, firstLat]];
+}
+
+function buildDirectionsUrl(token, start, end) {
+  const [startLng, startLat] = start;
+  const [endLng, endLat] = end;
+  const coordinates = `${startLng},${startLat};${endLng},${endLat}`;
+
+  return `https://api.mapbox.com/directions/v5/mapbox/walking/${coordinates}?alternatives=false&continue_straight=true&geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(token)}`;
+}
+
+function buildBoundaryHeatSourceData(boundary) {
+  const ring = Array.isArray(boundary) ? boundary.slice(0, -1) : [];
+  if (ring.length < 3) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const centroid = ring.reduce(
+    (acc, point) => {
+      acc.lng += Number(point?.[0] || 0);
+      acc.lat += Number(point?.[1] || 0);
+      return acc;
+    },
+    { lng: 0, lat: 0 }
+  );
+
+  centroid.lng /= ring.length;
+  centroid.lat /= ring.length;
+
+  const targetPointCount = 3;
+  const intensities = [1.0, 0.9, 0.82];
+  const factors = [0.76, 0.74, 0.78];
+
+  const features = Array.from({ length: targetPointCount }, (_, index) => {
+    const vertexIndex = Math.floor((index * ring.length) / targetPointCount) % ring.length;
+    const vertex = ring[vertexIndex];
+    const factor = factors[index] || 0.72;
+
+    const lng = centroid.lng + (vertex[0] - centroid.lng) * factor;
+    const lat = centroid.lat + (vertex[1] - centroid.lat) * factor;
+
+    return {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [lng, lat],
+      },
+      properties: {
+        intensity: intensities[index] || 0.72,
+      },
+    };
+  });
+
+  return {
+    type: 'FeatureCollection',
+    features,
+  };
+}
+
+function buildOutsideBoundaryMaskData(boundary) {
+  const outerRing = [
+    [-180, -85],
+    [180, -85],
+    [180, 85],
+    [-180, 85],
+    [-180, -85],
+  ];
+
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      // Second ring creates a hole so only outside of the crowd boundary gets darkened.
+      coordinates: [outerRing, boundary],
+    },
+    properties: {},
+  };
 }
 
 export default function LiveCommandMap({ mapData, highlightedRoute }) {
@@ -155,10 +261,15 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
   };
 
   const exitNameKeyByName = {
+    'Sevasadan Chowk': 'map.exitNames.sevasadanChowk',
     'Laxmi Road': 'map.exitNames.laxmiRoad',
+    'Tilak Road': 'map.exitNames.tilakRoad',
     'Mamledar Kacheri': 'map.exitNames.mamledarKacheri',
+    'Jayantrao Tilak Bridge': 'map.exitNames.jayantraoTilakBridge',
     'Subhanshah Dargah (Raviwar Peth)': 'map.exitNames.subhanshahDargah',
+    'Govind Halwai Chowk': 'map.exitNames.govindHalwaiChowk',
     Perugate: 'map.exitNames.perugate',
+    'Maharana Pratap Udyan': 'map.exitNames.maharanaPratapUdyan',
   };
 
   const routeNameKeyByName = {
@@ -216,10 +327,30 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
       ? mapData.main_gate
       : DEFAULT_MAIN_GATE;
 
-  const emergencyExits =
-    Array.isArray(mapData?.emergency_exits) && mapData.emergency_exits.length > 0
-      ? mapData.emergency_exits
-      : DEFAULT_EMERGENCY_EXITS;
+  const emergencyExits = useMemo(() => {
+    const provided = Array.isArray(mapData?.emergency_exits) ? mapData.emergency_exits : [];
+
+    // Keep backend exits and append any missing known Dagdusheth exits.
+    const merged = [...provided];
+    const existingKeys = new Set(
+      provided.map((exitPoint) => {
+        const route = String(exitPoint?.route || '').trim().toLowerCase();
+        const name = String(exitPoint?.name || '').trim().toLowerCase();
+        return `${route}::${name}`;
+      })
+    );
+
+    DEFAULT_EMERGENCY_EXITS.forEach((defaultExit) => {
+      const key = `${String(defaultExit.route).trim().toLowerCase()}::${String(defaultExit.name)
+        .trim()
+        .toLowerCase()}`;
+      if (!existingKeys.has(key)) {
+        merged.push(defaultExit);
+      }
+    });
+
+    return merged;
+  }, [mapData?.emergency_exits]);
 
   const boundaryVertices = useMemo(
     () =>
@@ -271,6 +402,21 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
     }),
     [heatmapPoints]
   );
+
+  const boundarySourceData = useMemo(
+    () => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [boundary],
+      },
+      properties: {},
+    }),
+    [boundary]
+  );
+
+  const outsideBoundaryMaskData = useMemo(() => buildOutsideBoundaryMaskData(boundary), [boundary]);
+  const boundaryHeatSourceData = useMemo(() => buildBoundaryHeatSourceData(boundary), [boundary]);
 
   useEffect(() => {
     if (!token || !mapContainerRef.current || mapRef.current) {
@@ -504,13 +650,21 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
 
           map.addSource('crowd-boundary', {
             type: 'geojson',
-            data: {
-              type: 'Feature',
-              geometry: {
-                type: 'Polygon',
-                coordinates: [boundary],
-              },
-              properties: {},
+            data: boundarySourceData,
+          });
+
+          map.addSource('crowd-boundary-outside-mask', {
+            type: 'geojson',
+            data: outsideBoundaryMaskData,
+          });
+
+          map.addLayer({
+            id: 'crowd-boundary-outside-mask-layer',
+            type: 'fill',
+            source: 'crowd-boundary-outside-mask',
+            paint: {
+              'fill-color': '#04070e',
+              'fill-opacity': 0.58,
             },
           });
 
@@ -521,6 +675,55 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
             paint: {
               'fill-color': '#4f6f92',
               'fill-opacity': 0.14,
+            },
+          });
+
+          map.addSource('crowd-boundary-heat', {
+            type: 'geojson',
+            data: boundaryHeatSourceData,
+          });
+
+          map.addLayer({
+            id: 'crowd-boundary-heatmap',
+            type: 'heatmap',
+            source: 'crowd-boundary-heat',
+            maxzoom: 24,
+            paint: {
+              'heatmap-weight': ['get', 'intensity'],
+              'heatmap-intensity': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10,
+                1.3,
+                16,
+                2.2,
+              ],
+              'heatmap-color': [
+                'interpolate',
+                ['linear'],
+                ['heatmap-density'],
+                0,
+                'rgba(0,0,0,0)',
+                0.2,
+                'rgba(28,155,76,0.46)',
+                0.45,
+                'rgba(71,194,93,0.78)',
+                0.72,
+                'rgba(224,199,53,0.9)',
+                1,
+                'rgba(255,220,74,0.98)',
+              ],
+              'heatmap-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10,
+                16,
+                16,
+                30,
+              ],
+              'heatmap-opacity': 0.95,
             },
           });
 
@@ -586,6 +789,23 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
           });
 
           map.addLayer({
+            id: 'auto-evac-route-casing',
+            type: 'line',
+            source: 'auto-evac-route',
+            layout: {
+              visibility: 'none',
+              'line-cap': 'round',
+              'line-join': 'round',
+            },
+            paint: {
+              'line-color': '#ffffff',
+              'line-width': 10,
+              'line-opacity': 0.88,
+              'line-blur': 0.1,
+            },
+          });
+
+          map.addLayer({
             id: 'auto-evac-route-line',
             type: 'line',
             source: 'auto-evac-route',
@@ -596,9 +816,9 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
             },
             paint: {
               'line-color': '#ef5b5b',
-              'line-width': 6,
+              'line-width': 6.5,
               'line-opacity': 0.96,
-              'line-blur': 0.2,
+              'line-blur': 0,
             },
           });
 
@@ -628,10 +848,24 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
           map.fitBounds(focusBounds, {
             padding: { top: 50, bottom: 50, left: 50, right: 50 },
             maxZoom: 15.8,
+            duration: 1100,
+            essential: true,
           });
 
-          // Keep map in 3D after fitBounds normalization.
-          map.once('moveend', () => apply3DView(map));
+          // On first load, run a clear 3D intro zoom (+20%) once the map has settled.
+          map.once('idle', () => {
+            const currentZoom = map.getZoom();
+            const targetZoom = Math.min(currentZoom * 1.2, 19);
+            map.flyTo({
+              center: mainGate.coordinates,
+              zoom: targetZoom,
+              pitch: 60,
+              bearing: -20,
+              speed: 0.55,
+              curve: 1.25,
+              essential: true,
+            });
+          });
 
         });
 
@@ -673,7 +907,22 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
     if (zonesSource) {
       zonesSource.setData(sourceData);
     }
-  }, [sourceData]);
+
+    const boundarySource = map.getSource('crowd-boundary');
+    if (boundarySource) {
+      boundarySource.setData(boundarySourceData);
+    }
+
+    const outsideMaskSource = map.getSource('crowd-boundary-outside-mask');
+    if (outsideMaskSource) {
+      outsideMaskSource.setData(outsideBoundaryMaskData);
+    }
+
+    const boundaryHeatSource = map.getSource('crowd-boundary-heat');
+    if (boundaryHeatSource) {
+      boundaryHeatSource.setData(boundaryHeatSourceData);
+    }
+  }, [boundaryHeatSourceData, boundarySourceData, outsideBoundaryMaskData, sourceData]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -683,31 +932,105 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
 
     const routeSource = map.getSource('auto-evac-route');
     const routeLayerExists = Boolean(map.getLayer('auto-evac-route-line'));
+    const routeCasingLayerExists = Boolean(map.getLayer('auto-evac-route-casing'));
     const coords = Array.isArray(highlightedRoute?.coordinates) ? highlightedRoute.coordinates : [];
-    const showRoute = coords.length >= 2;
+    const hasRouteRequest = coords.length >= 2;
 
-    if (routeSource) {
+    if (!hasRouteRequest) {
+      if (routeSource) {
+        routeSource.setData({
+          type: 'FeatureCollection',
+          features: [],
+        });
+      }
+      if (routeLayerExists) {
+        map.setLayoutProperty('auto-evac-route-line', 'visibility', 'none');
+      }
+      if (routeCasingLayerExists) {
+        map.setLayoutProperty('auto-evac-route-casing', 'visibility', 'none');
+      }
+      return;
+    }
+
+    let isActive = true;
+    const controller = new AbortController();
+
+    const [start, end] = coords;
+    const fallbackCoordinates = [start, end];
+
+    const setRouteGeometry = (routeCoordinates) => {
+      if (!isActive || !routeSource) {
+        return;
+      }
+
       routeSource.setData({
         type: 'FeatureCollection',
-        features: showRoute
-          ? [
-            {
-              type: 'Feature',
-              geometry: {
-                type: 'LineString',
-                coordinates: coords,
-              },
-              properties: {},
+        features: [
+          {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: routeCoordinates,
             },
-          ]
-          : [],
+            properties: {},
+          },
+        ],
       });
-    }
 
-    if (routeLayerExists) {
-      map.setLayoutProperty('auto-evac-route-line', 'visibility', showRoute ? 'visible' : 'none');
-    }
-  }, [highlightedRoute]);
+      if (routeLayerExists) {
+        map.setLayoutProperty('auto-evac-route-line', 'visibility', 'visible');
+      }
+      if (routeCasingLayerExists) {
+        map.setLayoutProperty('auto-evac-route-casing', 'visibility', 'visible');
+      }
+
+      const routeBounds = routeCoordinates.reduce(
+        (bounds, point) => bounds.extend(point),
+        new window.mapboxgl.LngLatBounds(routeCoordinates[0], routeCoordinates[0])
+      );
+
+      // Keep both start and end points visible with a controlled, non-deep zoom.
+      map.fitBounds(routeBounds, {
+        padding: { top: 72, bottom: 72, left: 72, right: 72 },
+        maxZoom: 16.7,
+        duration: 1000,
+        essential: true,
+      });
+    };
+
+    const fetchRoutedPath = async () => {
+      try {
+        const url = buildDirectionsUrl(token, start, end);
+        const response = await fetch(url, { signal: controller.signal });
+
+        if (!response.ok) {
+          throw new Error(`Directions request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const routeCoordinates = data?.routes?.[0]?.geometry?.coordinates;
+
+        if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) {
+          throw new Error('Directions geometry unavailable');
+        }
+
+        setRouteGeometry(routeCoordinates);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        console.warn('Using fallback evacuation line, routing unavailable:', error);
+        setRouteGeometry(fallbackCoordinates);
+      }
+    };
+
+    fetchRoutedPath();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [highlightedRoute, token]);
 
   if (!token) {
     return (

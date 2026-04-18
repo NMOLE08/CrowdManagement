@@ -61,26 +61,10 @@ export function useMlSceneData(pollMs = 8000) {
   useEffect(() => {
     let mounted = true;
 
-    const handleOnline = () => {
-      console.log('Browser reported ONLINE');
-      setNetworkOnline(true);
-    };
-    const handleOffline = () => {
-      console.log('Browser reported OFFLINE');
-      setNetworkOnline(false);
-    };
-
+    const handleOnline = () => setNetworkOnline(true);
+    const handleOffline = () => setNetworkOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
-    // Also re-check on window focus or visibility change to catch missed events
-    const handleRecheck = () => {
-      if (typeof navigator !== 'undefined') {
-        setNetworkOnline(navigator.onLine);
-      }
-    };
-    window.addEventListener('focus', handleRecheck);
-    document.addEventListener('visibilitychange', handleRecheck);
 
     try {
       const rawCached = window.localStorage.getItem(SCENE_CACHE_KEY);
@@ -162,7 +146,7 @@ export function useMlSceneData(pollMs = 8000) {
     };
   }, [pollMs, cachedSceneAvailable]);
 
-  const isFallbackActive = !networkOnline;
+  const isFallbackActive = !networkOnline || Boolean(error);
 
   return useMemo(
     () => ({
