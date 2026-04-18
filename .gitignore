@@ -3,5 +3,11 @@ dist/
 .env
 .env.local
 *.log
-package.json
-.venv/*
+.venv/
+models/**/*.weights
+models/**/*.pt
+models/**/*.hdf5
+models/**/*.onnx
+__pycache__/
+*.pyc
+.DS_Store

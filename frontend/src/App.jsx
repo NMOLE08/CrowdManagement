@@ -9,12 +9,13 @@ import { useCameraAnalytics } from './hooks/useCameraAnalytics';
 import { useEmotionDetection } from './hooks/useEmotionDetection';
 import { useTranslation } from 'react-i18next';
 import crowdLogo from './assets/CrowdLogo.png';
+import crowdNameLogo from './assets/CrowdnameLogo.png';
 
 const RED_ALERT_TRIGGER_KEY = 'crowdshield_red_alert_trigger_at';
 
-export default function App() {
+export default function App({ navigate, activeRole }) {
   const { t, i18n } = useTranslation();
-  const { scene, loading, error, systemStatus } = useMlSceneData(7000);
+  const { scene, loading, error, systemStatus } = useMlSceneData(900);
   const [selectedCamera, setSelectedCamera] = useState(null);
   const [isAmberDemoOpen, setIsAmberDemoOpen] = useState(false);
   const [amberActionNote, setAmberActionNote] = useState('');
@@ -26,10 +27,14 @@ export default function App() {
   const [redSuggestion, setRedSuggestion] = useState('');
   const [isAmberActionLoading, setIsAmberActionLoading] = useState(false);
   const [isRedActionLoading, setIsRedActionLoading] = useState(false);
+  const [isAmberDemoPending, setIsAmberDemoPending] = useState(false);
+  const [isAmberIgnored, setIsAmberIgnored] = useState(false);
+  const [isRedActivated, setIsRedActivated] = useState(false);
   const amberSendInFlightRef = useRef(false);
   const redSendInFlightRef = useRef(false);
   const redAutoTriggeredRef = useRef(false);
   const redDelayTimerRef = useRef(null);
+  const amberDelayTimerRef = useRef(null);
   const modalVideoRef = useRef(null);
   const [isRedDemoPending, setIsRedDemoPending] = useState(false);
   const { cameras, getCameraDetails } = useCameraAnalytics(scene);
@@ -68,12 +73,12 @@ export default function App() {
   };
 
   const cameraTitleKeyByName = {
-    cam1: 'cameraNames.cam1',
-    cam2: 'cameraNames.cam2',
-    cam3: 'cameraNames.cam3',
-    cam4: 'cameraNames.cam4',
-    cam5: 'cameraNames.cam5',
-    cam6: 'cameraNames.cam6',
+    'main entrance': 'cameraNames.cam1',
+    'gate 1': 'cameraNames.cam2',
+    'gate 2': 'cameraNames.cam3',
+    'gate 3': 'cameraNames.cam4',
+    'gate 4': 'cameraNames.cam5',
+    'gate 5': 'cameraNames.cam6',
   };
 
   const numberLocale = i18n.language === 'mr' ? 'mr-IN' : 'en-IN';
@@ -84,7 +89,11 @@ export default function App() {
       ? t('status.syncing')
       : systemStatus?.isFallbackActive
         ? t('status.fallbackMode')
-        : t('status.allOkay');
+        : isRedActivated
+          ? t('status.critical')
+          : isAmberIgnored 
+            ? t('status.warning')
+            : t('status.allOkay');
 
   const formatLocalizedNumber = (value) => {
     const numeric = Number(value);
@@ -93,6 +102,11 @@ export default function App() {
     }
     return numeric.toLocaleString(numberLocale);
   };
+
+  const isAllOkay = !loading && 
+                    !isAmberDemoPending && !isRedDemoPending &&
+                    !isAmberIgnored && !isRedActivated &&
+                    systemStatus?.networkOnline && !systemStatus?.isFallbackActive;
 
   const localizeEmotion = (value) => {
     const key = emotionKeyByName[String(value || '').toLowerCase()];
@@ -240,14 +254,21 @@ export default function App() {
     ? localizeLocation(getCameraDetails(amberDemoCamera).locationDetails)
     : t('location.unavailable');
 
+  const totalLiveCount = useMemo(() => {
+    const cameraSum = (cameras || []).reduce((acc, cam) => acc + (Number(cam.ml_count ?? cam.count ?? 0)), 0);
+    return cameraSum;
+  }, [cameras]);
+
   const metrics = [
     {
       label: t('metrics.liveCount'),
-      value: formatLocalizedNumber(scene?.metrics?.live_count || 0),
+      value: formatLocalizedNumber(totalLiveCount),
+      isDynamic: true,
     },
     {
       label: t('metrics.hotspot'),
-      value: hotspotFromMap || localizeHotspotValue(scene?.metrics?.hotspot),
+      value: `Gate 4-${formatLocalizedNumber(cameras.find(c => c.id === 5)?.ml_count ?? 0)}`,
+      isDynamic: true,
     },
     {
       label: t('metrics.system'),
@@ -275,18 +296,22 @@ export default function App() {
       };
     }
 
-    const details = getCameraDetails(selectedCamera);
+    // Find the latest camera record from the live analytics array to ensure the modal stays updated
+    const liveCam = cameras.find(c => c.id === selectedCamera.id) || selectedCamera;
+    const details = getCameraDetails(liveCam);
+    const primaryEmotion = liveCam.primary_emotion || liveCam.emotion || 'Calm';
 
     return {
       count: details.count,
-      emotion: localizeEmotion(emotionDetection.primaryEmotion),
+      emotion: localizeEmotion(primaryEmotion),
       locationDetails: localizeLocation(details.locationDetails),
-      emotionBars: emotionDetection.emotionBars.map((entry) => ({
-        ...entry,
-        displayName: localizeEmotion(entry.name),
-      })),
+      emotionBars: (liveCam.emotion_scores ? Object.entries(liveCam.emotion_scores).map(([name, percentage]) => ({
+        name,
+        percentage,
+        displayName: localizeEmotion(name)
+      })) : []).sort((a, b) => b.percentage - a.percentage),
     };
-  }, [emotionDetection.emotionBars, emotionDetection.primaryEmotion, getCameraDetails, selectedCamera, t]);
+  }, [cameras, getCameraDetails, selectedCamera, t]);
 
   const toggleLanguage = () => {
     const nextLanguage = i18n.language === 'mr' ? 'en' : 'mr';
@@ -454,9 +479,18 @@ export default function App() {
   }, [i18n.language, i18n.resolvedLanguage, isRedDemoOpen, t]);
 
   const openAmberDemo = () => {
+    if (amberDelayTimerRef.current) return;
     setAmberActionNote('');
     setAmberSuggestion(t('demo.suggestionLoading'));
-    setIsAmberDemoOpen(true);
+    setIsAmberDemoPending(true);
+    setIsAmberIgnored(false); // Reset ignored state when starting a new demo
+
+    amberDelayTimerRef.current = window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setIsAmberDemoOpen(true);
+      setIsAmberDemoPending(false);
+      amberDelayTimerRef.current = null;
+    }, 3000);
   };
 
   const closeAmberDemo = () => {
@@ -486,6 +520,7 @@ export default function App() {
 
   const onAmberIgnore = () => {
     setAmberActionNote('');
+    setIsAmberIgnored(true); // Persist warning state in navbar
     closeAmberDemo();
   };
 
@@ -503,6 +538,7 @@ export default function App() {
     setHighlightedRoute(null);
     setRedActionNote('');
     setRedCountdown(10);
+    setIsRedActivated(false); // Reset persistent critical state on new demo
     setRedSuggestion(t('demoCritical.suggestionLoading'));
     setIsRedDemoPending(true);
 
@@ -534,6 +570,7 @@ export default function App() {
         setRedSuggestion(response.aiSuggestion);
       }
       setRedActionNote(t('demoCritical.smsSent'));
+      setIsRedActivated(true); // Navbar turns red permanently
       closeRedDemo();
     } catch (err) {
       setRedActionNote(t('demoCritical.actionError'));
@@ -550,7 +587,8 @@ export default function App() {
 
   return (
     <div className={`dashboard-shell${isAmberDemoOpen ? ' dashboard-shell--amber' : ''}`}>
-      <header className="dashboard-header">
+      {isRedDemoOpen && <div className="screen-glow--critical" aria-hidden="true" />}
+      <header className={`dashboard-header${isRedActivated ? ' dashboard-header--critical' : isAmberIgnored ? ' dashboard-header--warning' : isAllOkay ? ' dashboard-header--success' : ''}`}>
         <div className="logo-block">
           <span className="logo-badge">
             <img
@@ -568,12 +606,24 @@ export default function App() {
             <span className="logo-fallback">CS</span>
           </span>
           <div>
-            <p className="logo-title">CrowdShield</p>
-            <p className="logo-subtitle">{t('header.subtitle')}</p>
+            <img src={crowdNameLogo} alt="CrowdShield" className="logo-name-image" />
           </div>
         </div>
 
         <div className="header-right">
+          {activeRole === 'admin' && (
+            <button
+              type="button"
+              className="lang-toggle"
+              onClick={() => navigate('/planning')}
+              aria-label={t('header.planEvent')}
+            >
+              <i className="fa-solid fa-calendar-check" aria-hidden="true" />
+              <span>{t('header.planEvent')}</span>
+            </button>
+          )}
+
+
           <div className="status-block" aria-live="polite">
             <span className="status-icon" aria-hidden="true">◉</span>
             <span>{headerStatusText}</span>
@@ -604,9 +654,9 @@ export default function App() {
                 <h2>{t('sections.keyMetrics')}</h2>
                 <div className="metric-list">
                   {metrics.map((metric) => (
-                    <article className="metric-item" key={metric.label}>
+                    <article className={`metric-item${metric.isDynamic ? ' metric-item--dynamic' : ''}`} key={metric.label}>
                       <p className="metric-label">{metric.label}</p>
-                      <p className="metric-value">{metric.value}</p>
+                      <p className="metric-value" key={metric.isDynamic ? metric.value : undefined}>{metric.value}</p>
                     </article>
                   ))}
                 </div>
@@ -626,7 +676,7 @@ export default function App() {
 
             <section className="map-panel" aria-label={t('sections.mapPreview')}>
               <div className="map-inner map-inner--live">
-                <LiveCommandMap mapData={scene?.map} highlightedRoute={highlightedRoute} />
+                 <LiveCommandMap mapData={scene?.map} cameras={cameras} highlightedRoute={highlightedRoute} />
               </div>
             </section>
           </section>
@@ -652,7 +702,13 @@ export default function App() {
                   }}
                 >
                   <div className="camera-card__frame">
-                    {cam.streamUrl ? (
+                    {cam.streamUrl && cam.streamUrl.startsWith('data:image') ? (
+                      <img
+                        className="camera-card__video"
+                        src={cam.streamUrl}
+                        alt={localizeCameraTitle(cam.title)}
+                      />
+                    ) : cam.streamUrl ? (
                       <video
                         className="camera-card__video"
                         src={cam.streamUrl}
@@ -668,8 +724,14 @@ export default function App() {
                     )}
                   </div>
                   <div className="camera-label-row">
-                    <span>{localizeCameraTitle(cam.title)}</span>
-                    {cam.live ? <span className="live-pill">{t('common.live')}</span> : null}
+                    <div className="camera-label-left">
+                      <span>{localizeCameraTitle(cam.title)}</span>
+                      {cam.live ? <span className="live-pill">{t('common.live')}</span> : null}
+                    </div>
+                    <div className="camera-count-badge" aria-label={t('camera.count')}>
+                      <i className="fa-solid fa-users" aria-hidden="true" />
+                      <span>{formatLocalizedNumber(cam.ml_count ?? cam.count ?? 0)}</span>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -681,10 +743,18 @@ export default function App() {
               type="button"
               className="demo-btn demo-btn--orange"
               onClick={openAmberDemo}
+              disabled={isAmberDemoPending}
             >
-              DEMO
+              {isAmberDemoPending ? t('status.syncing') : 'DEMO'}
             </button>
-            <button type="button" className="demo-btn demo-btn--red" onClick={openRedDemo}>DEMO</button>
+            <button
+              type="button"
+              className="demo-btn demo-btn--red"
+              onClick={openRedDemo}
+              disabled={isRedDemoPending}
+            >
+              {isRedDemoPending ? t('status.syncing') : 'DEMO'}
+            </button>
           </section>
         </main>
       )}
@@ -714,7 +784,13 @@ export default function App() {
 
               <div className="camera-modal__top">
                 <div className="camera-modal__video-wrap">
-                  {selectedCamera.streamUrl ? (
+                  {selectedCamera.streamUrl && selectedCamera.streamUrl.startsWith('data:image') ? (
+                    <img
+                      className="camera-modal__video"
+                      src={selectedCamera.streamUrl}
+                      alt={localizeCameraTitle(selectedCamera.title)}
+                    />
+                  ) : selectedCamera.streamUrl ? (
                     <video
                       ref={modalVideoRef}
                       className="camera-modal__video"
@@ -845,22 +921,8 @@ export default function App() {
           <div
             className="amber-overlay amber-overlay--critical"
             role="presentation"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) {
-                closeRedDemo();
-              }
-            }}
           >
             <section className="amber-card amber-card--critical" role="dialog" aria-modal="true" aria-label={t('demoCritical.title')}>
-              <button
-                type="button"
-                className="amber-close amber-close--critical"
-                aria-label={t('demoCritical.close')}
-                onClick={closeRedDemo}
-              >
-                ×
-              </button>
-
               <div className="amber-title-pill amber-title-pill--critical">{t('demoCritical.title')}</div>
 
               <p className="amber-warning-text">{t('demoCritical.warningText')}</p>
@@ -908,9 +970,6 @@ export default function App() {
               <div className="amber-actions">
                 <button type="button" className="amber-action-btn amber-action-btn--sms" onClick={onRedSendSms} disabled={isRedActionLoading}>
                   {isRedActionLoading ? t('demoCritical.sending') : t('demoCritical.sendSms')}
-                </button>
-                <button type="button" className="amber-action-btn amber-action-btn--ignore" onClick={onRedIgnore}>
-                  {t('demoCritical.ignore')}
                 </button>
               </div>
 

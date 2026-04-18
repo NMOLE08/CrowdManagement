@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+import random
 from copy import deepcopy
 from datetime import datetime, timezone
 from io import BytesIO
@@ -59,6 +61,24 @@ DEMO_ALERT_NUMBERS_RAW = [
 def save_groups():
     with open(GROUPS_FILE, "w") as f:
         json.dump(CONTACT_GROUPS, f, indent=2)
+
+# Track last generated alert to avoid consecutive repeats
+_last_dynamic_alert_time = time.time()
+_last_dynamic_alert_msg = None
+
+# Template pool for random alerts
+DYNAMIC_ALERT_TEMPLATES = [
+    ("Minor congestion detected near Dagdusheth Temple entrance", "medium"),
+    ("Slow-moving crowd observed at North Barricade", "medium"),
+    ("Emergency lane cleared successfully behind Main Gate", "safe"),
+    ("High pressure building up at South Queue lane", "critical"),
+    ("Vendor corridor flow is currently stable", "safe"),
+    ("Inner ring walkway reaching 80% capacity", "medium"),
+    ("Officer R. Kulkarni moved to hydration point", "safe"),
+    ("Baggage check bottleneck at North gate entrance", "medium"),
+    ("Sudden movement spike near crowd diversion rope", "critical"),
+    ("Pedestrian flow optimized at Laxmi Road merge", "safe"),
+]
 
 # In-memory store so teammate can post ML output without database setup.
 DEFAULT_STATE: dict[str, Any] = {
@@ -159,17 +179,63 @@ DEFAULT_STATE: dict[str, Any] = {
     "cameras": [
         {
             "id": 1,
-            "title": "cam1",
+            "title": "Main Entrance",
             "live": True,
-            "ml_count": 127,
-            "primary_emotion": "Anxious",
-            "emotion_scores": {
-                "calm": 36,
-                "neutral": 32,
-                "anxious": 22,
-                "panic": 10,
-            },
+            "ml_count": 0,
+            "primary_emotion": "Calm",
+            "emotion_scores": {"calm": 100, "neutral": 0, "anxious": 0, "panic": 0},
             "location_details": "East gate approach lane, Dagdusheth Temple perimeter.",
+            "coordinates": [73.8568, 18.5165],
+        },
+        {
+            "id": 2,
+            "title": "Gate 1",
+            "live": True,
+            "ml_count": 0,
+            "primary_emotion": "Calm",
+            "emotion_scores": {"calm": 100, "neutral": 0, "anxious": 0, "panic": 0},
+            "location_details": "North barricade checkpoint near vendor corridor.",
+            "coordinates": [73.8561, 18.5170],
+        },
+        {
+            "id": 3,
+            "title": "Gate 2",
+            "live": True,
+            "ml_count": 0,
+            "primary_emotion": "Calm",
+            "emotion_scores": {"calm": 100, "neutral": 0, "anxious": 0, "panic": 0},
+            "location_details": "South lane queue spillover near utility Gate.",
+            "coordinates": [73.8558, 18.5158],
+        },
+        {
+            "id": 4,
+            "title": "Gate 3",
+            "live": True,
+            "ml_count": 0,
+            "primary_emotion": "Calm",
+            "emotion_scores": {"calm": 100, "neutral": 0, "anxious": 0, "panic": 0},
+            "location_details": "Inner ring walkway near barricade turn.",
+            "coordinates": [73.8562, 18.5164],
+        },
+        {
+            "id": 5,
+            "title": "Gate 4",
+            "live": True,
+            "ml_count": 0,
+            "primary_emotion": "Calm",
+            "emotion_scores": {"calm": 100, "neutral": 0, "anxious": 0, "panic": 0},
+            "location_details": "Vendor-side corridor near hydration point.",
+            "coordinates": [73.8566, 18.5160],
+        },
+        {
+            "id": 6,
+            "title": "Gate 5",
+            "live": True,
+            "ml_count": 0,
+            "primary_emotion": "Calm",
+            "emotion_scores": {"calm": 100, "neutral": 0, "anxious": 0, "panic": 0},
+            "location_details": "Temple exit merge lane near crowd diversion rope.",
+            "coordinates": [73.8556, 18.5161],
         },
     ],
 }
@@ -272,22 +338,77 @@ def _update_dynamic_state():
     
     # Process all cameras to update the live count and find the hotspot
     for cid in sorted(CAM_FRAME_FILES.keys()):
-        frame = _next_camera_frame(cid)
-        if frame:
-            count = frame.get("head_count", 0)
-            total_camera_people += count
-            if count > max_count:
-                max_count = count
-                best_cam_title = f"Gate {cid-1}" if cid > 1 else "Main Gate approach"
+        # Find the current state of this camera
+        cam_state = next((c for c in state.get("cameras", []) if c.get("id") == cid), None)
+        
+        # If the camera is LIVE (webcam script is pushing data), use its existing metrics
+        if cam_state and cam_state.get("live"):
+            count = cam_state.get("ml_count", 0)
+        else:
+            # Otherwise, use simulated data from files
+            frame = _next_camera_frame(cid)
+            count = frame.get("head_count", 0) if frame else 0
+            
+            # Update individual camera state for simulated cameras
+            if cam_state:
+                cam_state["ml_count"] = count
+                label = frame.get("panic_label", "GREEN") if frame else "GREEN"
+                prob = frame.get("panic_prob", 0.0) if frame else 0.0
+                
+                # Simple mock emotion mapping logic
+                if label == "RED":
+                    cam_state["primary_emotion"] = "Panic"
+                    p = int(prob * 100)
+                    cam_state["emotion_scores"] = {"calm": 0, "neutral": 10, "anxious": 100-p-10, "panic": p}
+                elif label in ("ORANGE", "YELLOW"):
+                    cam_state["primary_emotion"] = "Anxious"
+                    p = int(prob * 100)
+                    cam_state["emotion_scores"] = {"calm": 10, "neutral": 30, "anxious": p, "panic": 100-p-40}
+                else:
+                    cam_state["primary_emotion"] = "Calm"
+                    p = int((1.0 - prob) * 100)
+                    cam_state["emotion_scores"] = {"calm": p, "neutral": 100-p-10, "anxious": 5, "panic": 5}
+
+        total_camera_people += count
+        if count > max_count:
+            max_count = count
+            best_cam_title = cam_state.get("title", f"Gate {cid-1}") if cam_state else f"Gate {cid-1}"
 
     # Dynamic metrics: Base baseline + live camera fluctuation
-    state["metrics"]["live_count"] = 124800 + total_camera_people
+    state["metrics"]["live_count"] = total_camera_people
     
     # Calculate a risk percentage for the hotspot based on its count density
-    # (Mock calculation: score = 80 + dynamic delta)
     risk_score = round(82.0 + (max_count % 15.0), 1)
-    state["metrics"]["hotspot"] = f"{best_cam_title} - {risk_score}%"
+    # Ensure Hotspot label stays consistent with Gate nomenclature
+    state["metrics"]["hotspot"] = f"{best_cam_title}-{max_count}"
     state["metrics"]["system"] = "Online"
+    
+    # Periodic Dynamic Alert Generation (Every 15 seconds)
+    global _last_dynamic_alert_time, _last_dynamic_alert_msg
+    now = time.time()
+    if now - _last_dynamic_alert_time >= 15:
+        # Weighted random choice to minimize "critical" (red) alerts
+        # Filter pool to avoid picking the same message twice in a row
+        candidates = [t for t in DYNAMIC_ALERT_TEMPLATES if t[0] != _last_dynamic_alert_msg]
+        if not candidates: candidates = DYNAMIC_ALERT_TEMPLATES
+        
+        # Recalculate weights for filtered candidates
+        weights = [0.8 if t[1] == "safe" else 0.18 if t[1] == "medium" else 0.02 for t in candidates]
+        msg, severity = random.choices(candidates, weights=weights, k=1)[0]
+        
+        _last_dynamic_alert_msg = msg
+        new_alert = {
+            "id": f"dyn_{int(now)}",
+            "message": msg,
+            "severity": severity,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        # Insert at top of list
+        state["alerts"].insert(0, new_alert)
+        # Keep only the last 15 alerts
+        state["alerts"] = state["alerts"][:15]
+        _last_dynamic_alert_time = now
+
     _touch()
 
 

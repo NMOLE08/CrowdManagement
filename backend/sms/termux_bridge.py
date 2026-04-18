@@ -106,6 +106,37 @@ def make_call():
     return jsonify({"ok": True, "number": number, "audio": audio_file})
 
 
+# ─────────────────────────────────────────────────
+# Send SMS
+# ─────────────────────────────────────────────────
+
+@app.post("/send-sms")
+def send_sms():
+    """
+    Send an SMS via termux-sms-send.
+    The Flask server sends: { "phoneNumbers": ["+91..."], "message": "... " }
+    """
+    data = request.json or {}
+    numbers = data.get("phoneNumbers", [])
+    message = data.get("message", "").strip()
+
+    if not numbers or not message:
+        return jsonify({"error": "phoneNumbers and message are required"}), 400
+
+    results = []
+    for num in numbers:
+        try:
+            # -n flag for phone number
+            logger.info("Sending SMS to %s ...", num)
+            subprocess.run(["termux-sms-send", "-n", num, message], check=True)
+            results.append({"number": num, "ok": True})
+        except Exception as e:
+            logger.error("Failed to send SMS to %s: %s", num, e)
+            results.append({"number": num, "ok": False, "error": str(e)})
+
+    return jsonify({"ok": True, "results": results})
+
+
 def _call_and_play(number: str, audio_file: str):
     """Background task: dial → wait for answer → play audio → end call."""
     logger.info("Dialling %s …", number)

@@ -38,22 +38,38 @@ class SMSService:
     def send(self, phone_number: str, message: str) -> SMSResult:
         """Send a single SMS."""
         try:
-            r = requests.post(
-                f"{self.base}/message",
-                json={
-                    "phoneNumbers": [phone_number],
-                    "message": message,
-                    "withDeliveryReport": True,
-                },
-                auth=self.auth,
-                timeout=self.timeout,
-            )
+            # If using Termux Bridge (port 5001), use its custom endpoint
+            if ":5001" in self.base:
+                r = requests.post(
+                    f"{self.base}/send-sms",
+                    json={
+                        "phoneNumbers": [phone_number],
+                        "message": message,
+                    },
+                    timeout=self.timeout,
+                )
+            else:
+                # Default: Android SMS Gateway (port 8080)
+                r = requests.post(
+                    f"{self.base}/message",
+                    json={
+                        "phoneNumbers": [phone_number],
+                        "message": message,
+                        "withDeliveryReport": True,
+                    },
+                    auth=self.auth,
+                    timeout=self.timeout,
+                )
+            
             r.raise_for_status()
             data = r.json()
+            
+            # Normalise results from different backends
+            success = data.get("ok", False) if ":5001" in self.base else True
             return SMSResult(
                 number=phone_number,
-                success=True,
-                message_id=data.get("id", ""),
+                success=success,
+                message_id=data.get("id", "termux-batch" if ":5001" in self.base else ""),
             )
         except requests.HTTPError as e:
             logger.error("SMS HTTP error %s → %s", phone_number, e)
@@ -65,8 +81,6 @@ class SMSService:
     def broadcast(self, phone_numbers: List[str], message: str) -> List[SMSResult]:
         """
         Send the same message to a list of numbers.
-        The android-sms-gateway supports sending to multiple numbers in one
-        request, but we fan out individually for granular per-number results.
         """
         results = []
         for number in phone_numbers:

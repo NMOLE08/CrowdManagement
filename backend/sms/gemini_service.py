@@ -95,7 +95,7 @@ Reply with ONLY the Marathi SMS text, nothing else."""
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=prompt,
             )
             return response.text.strip()
@@ -125,7 +125,7 @@ Reply with ONLY the spoken Marathi script, nothing else."""
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=prompt,
             )
             return response.text.strip()
@@ -155,7 +155,7 @@ Reply with ONLY the spoken Marathi script, nothing else."""
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.0-flash",
                 contents=prompt,
             )
             return (response.text or "").strip()
@@ -180,7 +180,7 @@ Reply with ONLY the spoken Marathi script, nothing else."""
         """
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash-preview-tts",
+                model="gemini-2.0-flash",
                 contents=text,
                 config=types.GenerateContentConfig(
                     response_modalities=["AUDIO"],

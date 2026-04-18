@@ -4,6 +4,7 @@ import App from './App';
 import MobileRoutePage from './components/MobileRoutePage';
 import OfficerStatusPage from './components/OfficerStatusPage';
 import LoginPage from './components/LoginPage';
+import PlanningPage from './components/PlanningPage';
 import { useMlSceneData } from './hooks/useMlSceneData';
 import './i18n';
 import './styles.css';
@@ -104,6 +105,7 @@ function normalizePathname(pathname) {
 function RootApp() {
   const [activeRole, setActiveRole] = useState('');
   const [normalizedPath, setNormalizedPath] = useState(normalizePathname(window.location.pathname));
+  const { scene } = useMlSceneData(7000);
 
   const navigate = useMemo(
     () => (path, { replace = false } = {}) => {
@@ -166,6 +168,20 @@ function RootApp() {
     );
   }
 
+  if (normalizedPath === '/planning') {
+    if (activeRole !== 'admin') {
+      navigate('/login', { replace: true });
+      return null;
+    }
+
+    return (
+      <PlanningPage
+        mapData={scene?.map}
+        onBackToDashboard={() => navigate('/', { replace: true })}
+      />
+    );
+  }
+
   if (normalizedPath === '/officer') {
     if (activeRole !== 'officer') {
       navigate('/', { replace: true });
@@ -180,7 +196,7 @@ function RootApp() {
     return null;
   }
 
-  return <App />;
+  return <App navigate={navigate} activeRole={activeRole} />;
 }
 
 createRoot(document.getElementById('root')).render(

@@ -246,7 +246,7 @@ function buildOutsideBoundaryMaskData(boundary) {
   };
 }
 
-export default function LiveCommandMap({ mapData, highlightedRoute }) {
+export default function LiveCommandMap({ mapData, cameras, highlightedRoute }) {
   const { t, i18n } = useTranslation();
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -402,6 +402,24 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
     }),
     [heatmapPoints]
   );
+
+  const cameraSourceData = useMemo(() => ({
+    type: 'FeatureCollection',
+    features: (cameras || []).filter(cam => Array.isArray(cam.coordinates)).map((cam) => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: cam.coordinates,
+      },
+      properties: {
+        id: cam.id,
+        title: cam.title,
+        count: cam.ml_count ?? cam.count ?? 0,
+        emotion: cam.primary_emotion || cam.emotion || 'Calm',
+        location: cam.location_details || cam.locationDetails || '',
+      },
+    })),
+  }), [cameras]);
 
   const boundarySourceData = useMemo(
     () => ({
@@ -822,6 +840,63 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
             },
           });
 
+          map.addSource('cameras', {
+            type: 'geojson',
+            data: cameraSourceData,
+          });
+
+          map.addLayer({
+            id: 'camera-markers',
+            type: 'circle',
+            source: 'cameras',
+            paint: {
+              'circle-radius': 12,
+              'circle-color': '#ffffff',
+              'circle-stroke-color': '#0ea05a',
+              'circle-stroke-width': 2.5,
+              'circle-opacity': 0.9,
+            },
+          });
+
+          map.addLayer({
+            id: 'camera-counts',
+            type: 'symbol',
+            source: 'cameras',
+            layout: {
+              'text-field': ['get', 'count'],
+              'text-size': 11,
+              'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+              'text-allow-overlap': true,
+              'text-ignore-placement': true,
+            },
+            paint: {
+              'text-color': '#111111',
+            },
+          });
+
+          map.on('click', 'camera-markers', (e) => {
+            const props = e.features[0].properties;
+            const popupContent = `
+              <div class="map-popup map-popup--camera">
+                <h4>${props.title.toUpperCase()}</h4>
+                <p><strong>${t('camera.count')}:</strong> <span class="popup-count-val">${props.count}</span></p>
+                <p><strong>${t('camera.emotion')}:</strong> ${props.emotion}</p>
+                <p class="popup-location">${props.location}</p>
+              </div>
+            `;
+            new mapboxgl.Popup({ offset: 15 })
+              .setLngLat(e.lngLat)
+              .setHTML(popupContent)
+              .addTo(map);
+          });
+
+          map.on('mouseenter', 'camera-markers', () => {
+            map.getCanvas().style.cursor = 'pointer';
+          });
+          map.on('mouseleave', 'camera-markers', () => {
+            map.getCanvas().style.cursor = '';
+          });
+
           const gatePopup = new mapboxgl.Popup({ offset: 24 }).setHTML(
             `<div class="map-popup"><h4>${localizeMainGateName(mainGate.name)}</h4><p><strong>${t('map.popupLocationLabel')}:</strong> ${t('map.mainGateDescription')}</p></div>`
           );
@@ -922,7 +997,11 @@ export default function LiveCommandMap({ mapData, highlightedRoute }) {
     if (boundaryHeatSource) {
       boundaryHeatSource.setData(boundaryHeatSourceData);
     }
-  }, [boundaryHeatSourceData, boundarySourceData, outsideBoundaryMaskData, sourceData]);
+    const cameraSource = map.getSource('cameras');
+    if (cameraSource) {
+      cameraSource.setData(cameraSourceData);
+    }
+  }, [boundaryHeatSourceData, boundarySourceData, cameraSourceData, outsideBoundaryMaskData, sourceData]);
 
   useEffect(() => {
     const map = mapRef.current;
