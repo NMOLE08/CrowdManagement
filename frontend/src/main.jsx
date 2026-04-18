@@ -10,6 +10,31 @@ import './i18n';
 import './styles.css';
 import crowdLogo from './assets/CrowdLogo.png';
 
+class SimpleErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('Frontend Crash:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '40px', color: '#ff5b5b', textAlign: 'center', background: '#0a0f1e', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <h1>Dashboard Initialization Error</h1>
+          <p>The dashboard encountered a runtime issue. Please try refreshing.</p>
+          <button onClick={() => window.location.reload()} style={{ marginTop: '20px', padding: '10px 20px', cursor: 'pointer' }}>Refresh Dashboard</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function setFaviconFromLogo() {
   const source = new Image();
   source.src = crowdLogo;
@@ -201,6 +226,8 @@ function RootApp() {
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <RootApp />
+    <SimpleErrorBoundary>
+      <RootApp />
+    </SimpleErrorBoundary>
   </React.StrictMode>
 );

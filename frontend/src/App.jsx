@@ -83,17 +83,18 @@ export default function App({ navigate, activeRole }) {
 
   const numberLocale = i18n.language === 'mr' ? 'mr-IN' : 'en-IN';
 
+  const isAllOkay = !loading && 
+    !isAmberDemoPending && !isRedDemoPending && 
+    !isAmberIgnored && !isRedActivated && 
+    systemStatus?.networkOnline && !systemStatus?.isFallbackActive;
+
   const headerStatusText = !systemStatus?.networkOnline
     ? t('fallback.networkOffline')
     : loading
       ? t('status.syncing')
       : systemStatus?.isFallbackActive
         ? t('status.fallbackMode')
-        : isRedActivated
-          ? t('status.critical')
-          : isAmberIgnored 
-            ? t('status.warning')
-            : t('status.allOkay');
+        : (isRedActivated ? t('status.critical') : isAmberIgnored ? t('status.warning') : t('status.allOkay'));
 
   const formatLocalizedNumber = (value) => {
     const numeric = Number(value);
@@ -102,11 +103,6 @@ export default function App({ navigate, activeRole }) {
     }
     return numeric.toLocaleString(numberLocale);
   };
-
-  const isAllOkay = !loading && 
-                    !isAmberDemoPending && !isRedDemoPending &&
-                    !isAmberIgnored && !isRedActivated &&
-                    systemStatus?.networkOnline && !systemStatus?.isFallbackActive;
 
   const localizeEmotion = (value) => {
     const key = emotionKeyByName[String(value || '').toLowerCase()];
@@ -267,12 +263,12 @@ export default function App({ navigate, activeRole }) {
     },
     {
       label: t('metrics.hotspot'),
-      value: `Gate 4-${formatLocalizedNumber(cameras.find(c => c.id === 5)?.ml_count ?? 0)}`,
+      value: hotspotFromMap || (Array.isArray(cameras) && cameras.length > 4 ? `Gate 4 - ${formatLocalizedNumber(cameras.find(c => c.id === 5)?.ml_count ?? 0)}` : localizeHotspotValue(scene?.metrics?.hotspot)),
       isDynamic: true,
     },
     {
       label: t('metrics.system'),
-      value: localizeSystemValue(scene?.metrics?.system),
+      value: systemStatus?.networkOnline ? localizeSystemValue(scene?.metrics?.system) : t('fallback.backendOffline'),
     },
   ];
 
@@ -656,7 +652,7 @@ export default function App({ navigate, activeRole }) {
                   {metrics.map((metric) => (
                     <article className={`metric-item${metric.isDynamic ? ' metric-item--dynamic' : ''}`} key={metric.label}>
                       <p className="metric-label">{metric.label}</p>
-                      <p className="metric-value" key={metric.isDynamic ? metric.value : undefined}>{metric.value}</p>
+                      <p className="metric-value">{metric.value}</p>
                     </article>
                   ))}
                 </div>

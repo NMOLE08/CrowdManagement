@@ -244,8 +244,8 @@ state: dict[str, Any] = deepcopy(DEFAULT_STATE)
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 CAM_FRAME_FILES: dict[int, list[str]] = {
-    1: ["cam3.jsonl"],  # Placeholder: cam1.jsonl missing
-    2: ["cam2.jsonl", "can2.jsonl"],
+    1: ["cam1.jsonl"],
+    2: ["can2.jsonl"],
     3: ["cam3.jsonl"],
     4: ["cam4.jsonl"],
     5: ["cam5.jsonl"],
@@ -576,16 +576,51 @@ def camera_frame_stats():
 def ingest_model_output():
     """
     Teammate integration endpoint.
-    Accepts partial payload to update live frontend state.
+    Updates live state and persists real-time data to camX.jsonl files.
     """
     payload = request.get_json(silent=True) or {}
 
     if not isinstance(payload, dict):
         return jsonify({"error": "Payload must be a JSON object"}), 400
 
-    for key in ("metrics", "map", "alerts", "city", "cameras"):
-        if key in payload:
-            state[key] = payload[key]
+    # 1. Update In-Memory State (for instant frontend feedback)
+    if "metrics" in payload:
+        state["metrics"].update(payload["metrics"])
+    
+    if "map" in payload:
+        state["map"].update(payload["map"])
+        
+    if "alerts" in payload:
+        state["alerts"] = payload["alerts"] # Replace alerts
+        
+    if "cameras" in payload and isinstance(payload["cameras"], list):
+        for cam_data in payload["cameras"]:
+            cam_id = cam_data.get("id")
+            if not cam_id: continue
+            
+            # Find and merge into current state
+            existing = next((c for c in state["cameras"] if c.get("id") == cam_id), None)
+            if existing:
+                existing.update(cam_data)
+            else:
+                state["cameras"].append(cam_data)
+            
+            # 2. Persist to JSONL (for simulation consistency)
+            mapping = CAM_FRAME_FILES.get(cam_id)
+            if mapping:
+                target_file = OUTPUT_DIR / mapping[0]
+                log_entry = {
+                    "frame_id": int(time.time() * 10),
+                    "timestamp_sec": time.time(),
+                    "head_count": cam_data.get("ml_count", 0),
+                    "panic_label": "RED" if cam_data.get("primary_emotion") == "Panic" else "GREEN",
+                    "panic_prob": 0.8 if cam_data.get("primary_emotion") == "Panic" else 0.1,
+                }
+                try:
+                    with target_file.open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_entry) + "\n")
+                except Exception as e:
+                    logger.error(f"Failed to persist live data to {target_file}: {e}")
 
     _touch()
     return jsonify({"status": "updated", "updated_at": state["updated_at"]})
