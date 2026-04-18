@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import crowdLogo from './assets/CrowdLogo.png';
 import crowdnameLogo from './assets/CrowdnameLogo.png';
 
+const RED_ALERT_TRIGGER_KEY = 'crowdshield_red_alert_trigger_at';
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const { scene, loading, error } = useMlSceneData(7000);
@@ -455,6 +457,14 @@ export default function App() {
     closeAmberDemo();
   };
 
+  const notifyOfficerRedAlertTriggered = () => {
+    try {
+      window.localStorage.setItem(RED_ALERT_TRIGGER_KEY, String(Date.now()));
+    } catch {
+      // Continue even if browser blocks storage; dashboard flow should still work.
+    }
+  };
+
   const openRedDemo = () => {
     if (isRedDemoPending) {
       return;
@@ -470,6 +480,7 @@ export default function App() {
     setIsRedDemoPending(true);
 
     redDelayTimerRef.current = window.setTimeout(() => {
+      notifyOfficerRedAlertTriggered();
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setIsRedDemoOpen(true);
       setIsRedDemoPending(false);

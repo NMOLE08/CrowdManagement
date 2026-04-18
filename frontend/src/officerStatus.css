@@ -1,0 +1,72 @@
+.officer-status-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background:
+    radial-gradient(circle at 14% 20%, rgba(37, 174, 114, 0.24), transparent 42%),
+    radial-gradient(circle at 84% 16%, rgba(42, 107, 208, 0.2), transparent 43%),
+    linear-gradient(145deg, #0a1324 0%, #10213d 50%, #0f2635 100%);
+}
+
+.officer-status-card {
+  width: min(500px, 92vw);
+  border-radius: 18px;
+  border: 1px solid rgba(218, 231, 255, 0.26);
+  background: rgba(10, 19, 34, 0.88);
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.35);
+  color: #edf4ff;
+  padding: 1.05rem 1rem 1rem;
+}
+
+.officer-status-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.62rem;
+}
+
+.officer-status-brand img {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.officer-status-brand h1 {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 800;
+}
+
+.officer-status-pill {
+  width: fit-content;
+  margin: 0.7rem 0 0;
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 232, 191, 0.52);
+  background: rgba(30, 146, 92, 0.2);
+  color: #b5f5d2;
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+
+.officer-status-text {
+  margin: 0.66rem 0 0;
+  color: #d5e2fb;
+  font-size: 0.89rem;
+  line-height: 1.42;
+}
+
+.officer-status-map-btn {
+  margin-top: 0.92rem;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.64rem 0.84rem;
+  background: linear-gradient(120deg, #249a6e 0%, #2f73e0 100%);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.officer-status-map-btn:hover {
+  filter: brightness(1.05);
+}
