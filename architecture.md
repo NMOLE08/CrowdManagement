@@ -14,7 +14,7 @@ sequenceDiagram
     participant ML as ML Pipeline (YOLO/YuNet)
     participant B as Flask Backend
     participant D as React Dashboard
-    participant G as Gemini AI
+    participant G as ML model
     participant T as Termux Bridge (Mobile)
 
     C->>ML: Raw Video Stream
