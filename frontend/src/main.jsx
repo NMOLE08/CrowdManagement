@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import MobileRoutePage from './components/MobileRoutePage';
+import OfficerStatusPage from './components/OfficerStatusPage';
+import LoginPage from './components/LoginPage';
+import { useMlSceneData } from './hooks/useMlSceneData';
 import './i18n';
 import './styles.css';
 import crowdLogo from './assets/CrowdLogo.png';
@@ -82,8 +86,105 @@ function setFaviconFromLogo() {
 
 setFaviconFromLogo();
 
+function MobileRouteStandalone({ onBackToDashboard }) {
+  const { scene } = useMlSceneData(7000);
+
+  return (
+    <MobileRoutePage
+      mapData={scene?.map}
+      onBackToDashboard={onBackToDashboard}
+    />
+  );
+}
+
+function normalizePathname(pathname) {
+  return pathname.replace(/\/+$/, '') || '/';
+}
+
+function RootApp() {
+  const [activeRole, setActiveRole] = useState('');
+  const [normalizedPath, setNormalizedPath] = useState(normalizePathname(window.location.pathname));
+
+  const navigate = useMemo(
+    () => (path, { replace = false } = {}) => {
+      const targetPath = normalizePathname(path);
+      if (targetPath === normalizePathname(window.location.pathname)) {
+        setNormalizedPath(targetPath);
+        return;
+      }
+
+      if (replace) {
+        window.history.replaceState({}, '', targetPath);
+      } else {
+        window.history.pushState({}, '', targetPath);
+      }
+      setNormalizedPath(targetPath);
+    },
+    []
+  );
+
+  useEffect(() => {
+    const onPopState = () => {
+      setNormalizedPath(normalizePathname(window.location.pathname));
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  if (normalizedPath === '/login') {
+    if (activeRole) {
+      navigate(activeRole === 'admin' ? '/' : '/officer', { replace: true });
+      return null;
+    }
+
+    return (
+      <LoginPage
+        onLogin={(role) => {
+          setActiveRole(role);
+          navigate(role === 'admin' ? '/' : '/officer', { replace: true });
+        }}
+      />
+    );
+  }
+
+  if (!activeRole) {
+    navigate('/login', { replace: true });
+    return null;
+  }
+
+  if (normalizedPath === '/mobile-route') {
+    if (activeRole !== 'officer' && activeRole !== 'admin') {
+      navigate('/login', { replace: true });
+      return null;
+    }
+
+    return (
+      <MobileRouteStandalone
+        onBackToDashboard={() => navigate(activeRole === 'officer' ? '/officer' : '/', { replace: true })}
+      />
+    );
+  }
+
+  if (normalizedPath === '/officer') {
+    if (activeRole !== 'officer') {
+      navigate('/', { replace: true });
+      return null;
+    }
+
+    return <OfficerStatusPage onOpenMap={() => navigate('/mobile-route', { replace: true })} />;
+  }
+
+  if (activeRole === 'officer') {
+    navigate('/officer', { replace: true });
+    return null;
+  }
+
+  return <App />;
+}
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <RootApp />
   </React.StrictMode>
 );
