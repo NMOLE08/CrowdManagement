@@ -73,3 +73,6 @@ python termux_bridge.py
 ---
 
 > **Note**: This project is built for the **Advanced Agentic Coding** initiative. It represents a state-of-the-art implementation of real-time AI integration in public safety.
+
+## Project Explanation
+- [text](https://www.loom.com/share/347cf27bc8a74b64872ef381f297f971)

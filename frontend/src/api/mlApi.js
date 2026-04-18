@@ -1,4 +1,18 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+const getApiBase = () => {
+  const { hostname } = window.location;
+  const localBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+  const tunnelBase = import.meta.env.VITE_API_TUNNEL_URL;
+
+  // If we are on a public tunnel URL and we have a backend tunnel defined, use it.
+  if (hostname.includes('trycloudflare.com') && tunnelBase) {
+    return tunnelBase;
+  }
+
+  // Default to localhost for local dev.
+  return localBase;
+};
+
+const API_BASE = getApiBase();
 
 async function apiGet(path) {
   const res = await fetch(`${API_BASE}${path}`);
