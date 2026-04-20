@@ -15,7 +15,7 @@
 - **Dynamic Heatmapping**: Intelligent hotspot detection identifying the most congested entry/exit points (e.g., *Gate 4*).
 
 ### 🚨 Intelligent Emergency Broadcast
-- **Autonomous Instruction Generation**: Uses Google Gemini AI to draft context-aware emergency instructions in multiple languages (English/Marathi).
+- **Autonomous Instruction Generation**: Drafts context-aware emergency instructions in multiple languages (English/Marathi).
 *   **Multi-Channel Delivery**: Simultaneous broadcast via SMS and automated Voice Calls.
 - **Termux Bridge**: A unique mobile fallback system allowing the dashboard to trigger alerts directly through an Android device, ensuring reliability in local network environments.
 
